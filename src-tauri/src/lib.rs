@@ -1134,6 +1134,15 @@ pub fn run() {
             commands::projects::reorder_projects,
             commands::presets::get_preset_skill_order,
             commands::presets::reorder_preset_skills,
+            // Remote environments
+            commands::remote::list_remote_envs,
+            commands::remote::save_remote_env,
+            commands::remote::delete_remote_env,
+            commands::remote::get_active_env,
+            commands::remote::set_active_env,
+            commands::remote::test_remote_env,
+            commands::remote::install_remote_cli,
+            commands::remote::remote_cli_exec,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

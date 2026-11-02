@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { routedInvoke as invoke } from "./remoteApi";
 
 // ── Types ──
 

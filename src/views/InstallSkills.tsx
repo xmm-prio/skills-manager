@@ -47,7 +47,7 @@ const SKILLS_SH_SITE_REF = /\/site\/([^/]+)\/([^/?#]+)\/?$/;
 
 export function InstallSkills() {
   const { t } = useTranslation();
-  const { refreshPresets, refreshManagedSkills, managedSkills, openSkillDetailById } = useApp();
+  const { refreshPresets, refreshManagedSkills, managedSkills, openSkillDetailById, isRemote } = useApp();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<"market" | "local" | "git">("market");
@@ -184,10 +184,13 @@ export function InstallSkills() {
 
   useEffect(() => {
     const tab = searchParams.get("tab");
-    if (tab === "market" || tab === "local" || tab === "git") {
+    // Local install reads this machine's folders, which a remote host cannot see.
+    if (tab === "local" && isRemote) {
+      setActiveTab("market");
+    } else if (tab === "market" || tab === "local" || tab === "git") {
       setActiveTab(tab);
     }
-  }, [searchParams]);
+  }, [searchParams, isRemote]);
 
   const switchTab = (tab: "market" | "local" | "git") => {
     setActiveTab(tab);
@@ -472,8 +475,29 @@ export function InstallSkills() {
     });
   };
 
+  // The CLI installs in one step, so a remote session skips the
+  // clone-and-pick preview, which needs a checkout on this machine.
+  const handleRemoteGitInstall = async (url: string) => {
+    setGitLoading(true);
+    const toastId = toast.loading(t("remote.installingOnRemote"));
+    try {
+      await api.installGit(url);
+      await Promise.all([refreshPresets(), refreshManagedSkills()]);
+      toast.success(t("install.toast.success", { name: url }), { id: toastId });
+      setGitUrl("");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t("common.error")), { id: toastId });
+    } finally {
+      setGitLoading(false);
+    }
+  };
+
   const handleGitPreview = async () => {
     if (!gitUrl.trim()) return;
+    if (isRemote) {
+      await handleRemoteGitInstall(gitUrl.trim());
+      return;
+    }
     setGitLoading(true);
     const url = gitUrl.trim();
     setGitCancelKey(url);
@@ -732,7 +756,7 @@ export function InstallSkills() {
         <div className="flex gap-1 border-b border-border-subtle">
           {[
             { id: "market" as const, label: t("install.browseMarket"), icon: Box },
-            { id: "local" as const, label: t("install.localInstall"), icon: UploadCloud },
+            ...(isRemote ? [] : [{ id: "local" as const, label: t("install.localInstall"), icon: UploadCloud }]),
             { id: "git" as const, label: t("install.gitInstall"), icon: Github },
           ].map((tab) => {
             const Icon = tab.icon;
@@ -1467,6 +1491,11 @@ export function InstallSkills() {
             </div>
             <h2 className="mb-1 text-[14px] font-semibold text-primary">{t("install.gitTitle")}</h2>
             <p className="mb-4 text-[13px] text-muted">{t("install.gitDesc")}</p>
+            {isRemote && (
+              <p className="mb-4 rounded-lg border border-sky-500/30 bg-sky-500/[0.08] px-3 py-2 text-[12px] text-sky-600 dark:text-sky-400">
+                {t("remote.gitInstallHint")}
+              </p>
+            )}
 
             <div className="space-y-3">
               <div>

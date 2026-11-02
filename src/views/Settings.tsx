@@ -59,6 +59,7 @@ import { useApp } from "../context/AppContext";
 import { useThemeContext } from "../context/ThemeContext";
 import { AgentIcon } from "../components/AgentIcon";
 import { ToggleSwitch } from "../components/ToggleSwitch";
+import { StatusBanner } from "../components/StatusBanner";
 import * as api from "../lib/tauri";
 import { applyTextSize } from "../lib/textScale";
 import { getErrorMessage } from "../lib/error";
@@ -150,7 +151,7 @@ function AgentGroupDnd({ items, sensors, dragLabel, onDragEnd, renderAgentCard }
 export function Settings() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { tools, refreshTools, openHelp, appUpdate, refreshAppUpdate } = useApp();
+  const { tools, refreshTools, openHelp, appUpdate, refreshAppUpdate, isRemote, activeEnv } = useApp();
   const [togglingTools, setTogglingTools] = useState<Set<string>>(new Set());
   const { theme, setTheme } = useThemeContext();
   const [syncMode, setSyncMode] = useState("symlink");
@@ -1070,6 +1071,14 @@ export function Settings() {
           {t("settings.title")}
         </h1>
       </div>
+
+      {isRemote && (
+        <StatusBanner
+          compact
+          title={t("remote.settingsNoticeTitle", { name: activeEnv?.name ?? "" })}
+          description={t("remote.settingsNotice")}
+        />
+      )}
 
       <div className="space-y-6">
         {/* Agent status */}

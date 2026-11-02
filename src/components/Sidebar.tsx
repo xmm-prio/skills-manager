@@ -16,6 +16,7 @@ import {
   Link2,
   ChevronDown,
   ChevronRight,
+  Server,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -49,7 +50,7 @@ export function Sidebar() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const { presets, viewedPreset, setViewedPresetId, closeSkillDetail, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, appUpdate } = useApp();
+  const { presets, viewedPreset, setViewedPresetId, closeSkillDetail, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, appUpdate, isRemote, activeEnv } = useApp();
   const [showCreate, setShowCreate] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{ id: string; name: string; icon?: string | null; description?: string | null } | null>(null);
@@ -169,7 +170,8 @@ export function Sidebar() {
     { name: t("sidebar.dashboard"), path: "/", icon: LayoutDashboard },
     { name: t("sidebar.mySkills"), path: "/my-skills", icon: Layers },
     { name: t("sidebar.installSkills"), path: "/install", icon: Download },
-    { name: t("sidebar.backup"), path: "/backup", icon: CloudUpload },
+    // Git backup works on the local library only.
+    ...(isRemote ? [] : [{ name: t("sidebar.backup"), path: "/backup", icon: CloudUpload }]),
   ];
 
   const handleSwitchPreset = (id: string) => {
@@ -393,6 +395,17 @@ export function Sidebar() {
           </span>
         </div>
 
+        {isRemote && (
+          <Link
+            to="/"
+            title={t("remote.sidebarBadgeTitle", { name: activeEnv?.name ?? "" })}
+            className="mx-2.5 mb-2 flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/[0.08] px-2.5 py-1.5 text-[12px] font-medium text-sky-600 dark:text-sky-400 outline-none transition-colors hover:bg-sky-500/[0.12]"
+          >
+            <Server className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{activeEnv?.name ?? t("remote.remote")}</span>
+          </Link>
+        )}
+
         {/* Nav */}
         <div className="px-2.5 space-y-0.5 shrink-0">
           {NAV_ITEMS.map((item) => {
@@ -578,6 +591,8 @@ export function Sidebar() {
             </>
           )}
 
+          {/* Project workspaces are local folders, so a remote session has none. */}
+          {!isRemote && (<>
           {/* Divider */}
           <div className="mx-0.5 mt-3.5 mb-2.5 border-t border-border-subtle" />
 
@@ -703,6 +718,7 @@ export function Sidebar() {
               </button>
             </>
           )}
+          </>)}
 
         </div>
 

@@ -79,6 +79,7 @@
 - **Skill preview and source inspection** — Read `SKILL.md` / `README.md`, inspect source metadata, and compare local content with the upstream version inside the app.
 - **Custom tools** — Add your own agents/tools with custom skills directories, or override the default path for any built-in tool.
 - **Backup & multi-device sync** — Connect a private GitHub repository with one sign-in (or any Git remote), and the app backs your library up automatically and keeps all connected devices in sync. Merges are skill-aware — a rename on one machine combines cleanly with an edit on another — and true conflicts never block: your local version stays put until you choose keep mine / use remote / keep both. Snapshot versions are restorable at any time.
+- **Remote environments (SSH)** — Switch the app to an SSH host from the Dashboard and manage that machine's library and agent deployments as if it were local. The host only needs the single `skills-manager-cli` file, which the app can install for you. See [Remote environments (SSH)](#remote-environments-ssh).
 - **Activity log & Export Logs** — Install / remove / update / sync operations are recorded locally. Use **Settings → Export Logs** to bundle recent logs and activity history into a single zip for easier issue reports.
 - **Flexible app settings** — Configure repo path, sync mode, theme, text size, language, tray behavior, proxy, Git remote, update checks, and the order agents appear throughout the app — all in one place.
 - **In-app updates** — The app tells you when a new version is out and installs it for you on macOS and Windows. Nothing downloads or installs on its own: checking only notifies, and installing and restarting each take a click.
@@ -153,6 +154,32 @@ Skills, tags, presets, and per-agent skill toggles are backed up. Secrets (API k
 ### Disconnecting
 
 The Backup page offers three levels: **disconnect this machine** (other devices and remote data untouched), **revoke the GitHub authorization**, or **delete the remote backup** entirely (routed through GitHub's own type-the-name confirmation).
+
+## Remote environments (SSH)
+
+If your agents run on a remote Linux server (for example through VS Code Remote-SSH), you can switch the whole app to that machine from the Dashboard. The library, presets and agent deployments are then the remote host's own: every operation is a call to the host's `skills-manager-cli --json` over the system `ssh`, and the app never reads or writes remote files directly.
+
+### Requirements
+
+- An OpenSSH client on this computer (built into Windows 10/11) and **key-based login** to the host (a key or ssh-agent). ssh runs in `BatchMode`, so there is no password prompt.
+- Connect to a new host once with `ssh` in a terminal to trust its host key.
+- `skills-manager-cli` on the host. The app can install it in one click: the host downloads the release file matching this app's version from GitHub with `curl` (or `wget`) into `~/.skills-manager/bin/`, without root. The host therefore needs access to GitHub.
+- The release Linux CLI needs glibc 2.35 or newer (2.39 for arm64), e.g. Ubuntu 22.04+, Debian 12+, RHEL 9+. **Test connection** checks the glibc version.
+
+### Usage
+
+1. On the Dashboard's environment card, open **Manage environments** → **Add environment** and enter a name and host. The host can be a `~/.ssh/config` alias; leave port, user and identity file empty to use your ssh config.
+2. **Test connection** reports the platform, glibc and CLI status. Use **Install CLI** when the CLI is missing and **Upgrade CLI** when it is older than the app.
+3. Save, then pick the environment in the environment selector. The sidebar shows the active remote environment; switch back to **This computer** at any time.
+
+Without a configured path, the remote CLI is looked up in `~/.skills-manager/bin`, `~/.local/bin`, `~/.cargo/bin` and `PATH`.
+
+### What works remotely
+
+- Supported: library list and details, delete, tags, per-agent deploy and undeploy, update check and update, install from a Git URL or the skills.sh marketplace, enabling and disabling agents, and creating, editing, deleting, filling and applying presets.
+- Not yet supported (hidden or reported as unavailable): project workspaces, backup and sync, scanning and importing local folders, zip install, the Git multi-skill preview, and upstream diffs. In a remote session the Global Workspace shows managed deployments only.
+- A Git URL is installed directly. For a repository with several skills, enter the URL of one skill's folder (`…/tree/<branch>/<path>`).
+- Apart from the agent switches, Settings (theme, language, local library path, …) still configures the app on this computer.
 
 ## Supported Tools
 

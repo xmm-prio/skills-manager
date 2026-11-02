@@ -3,11 +3,24 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import { listen } from "@tauri-apps/api/event";
 import type { AppUpdateInfo, ManagedSkill, Project, Preset, ToolInfo } from "../lib/tauri";
 import * as api from "../lib/tauri";
+import * as remote from "../lib/remoteApi";
+import type { RemoteEnv } from "../lib/remoteApi";
+import { getErrorMessage } from "../lib/error";
 import i18n from "../i18n";
 import { applyTextSize } from "../lib/textScale";
 import { toast } from "sonner";
 
 interface AppState {
+  /** Saved SSH remote environments. */
+  envs: RemoteEnv[];
+  /** `"local"` or the id of the remote environment the app is driving. */
+  activeEnvId: string;
+  activeEnv: RemoteEnv | null;
+  isRemote: boolean;
+  /** Last failure talking to the active remote environment. */
+  envError: string | null;
+  refreshEnvs: () => Promise<RemoteEnv[]>;
+  switchEnv: (id: string) => Promise<void>;
   presets: Preset[];
   /** Backend-tracked "last applied to default targets". Drives the "Applied to..." status, not the sidebar selection. */
   activePreset: Preset | null;
@@ -63,6 +76,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [detailSkillId, setDetailSkillId] = useState<string | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateInfo | null>(null);
+  const [envs, setEnvs] = useState<RemoteEnv[]>([]);
+  const [activeEnvId, setActiveEnvId] = useState<string>(remote.LOCAL_ENV_ID);
+  const [envError, setEnvError] = useState<string | null>(null);
+  const isRemote = activeEnvId !== remote.LOCAL_ENV_ID;
   const autoCheckInFlightRef = useRef(false);
   const appUpdateCheckedRef = useRef(false);
   const lastUpdateNotificationRef = useRef<string | null>(null);
@@ -113,9 +130,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const t = await api.getToolStatus();
       setTools(t);
       setAppError(null);
+      setEnvError(null);
     } catch (e) {
       console.error("Failed to load tools:", e);
       setTranslatedError("common.agents");
+      if (remote.isRemoteRouting()) {
+        setEnvError(getErrorMessage(e, i18n.t("common.error")));
+      }
     }
   }, [setTranslatedError]);
 
@@ -164,6 +185,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [refreshManagedSkills, refreshPresets]
   );
 
+  const refreshEnvs = useCallback(async () => {
+    const list = await remote.listRemoteEnvs();
+    setEnvs(list);
+    return list;
+  }, []);
+
+  const switchEnv = useCallback(
+    async (id: string) => {
+      await remote.setActiveEnv(id);
+      remote.setRoutingEnv(id);
+      setActiveEnvId(id);
+      setEnvError(null);
+      setDetailSkillId(null);
+      setManagedSkills([]);
+      setPresets([]);
+      setActivePreset(null);
+      setTools([]);
+      setProjects([]);
+      await refreshAppData();
+    },
+    [refreshAppData]
+  );
+
   // Resolve viewedPreset: persisted id > activePreset > first preset.
   // Persist whichever resolves so the next launch matches what the user saw.
   const viewedPreset = (() => {
@@ -193,6 +237,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // reader can compute duration as done - start. Keeping the unit
       // identical to the other frontend startup marks avoids ambiguity in
       // the log file (see codex review note on #153).
+      // The environment must be known before the first data load, or a
+      // remote session would briefly show the local library.
+      try {
+        const [list, envId] = await Promise.all([remote.listRemoteEnvs(), remote.getActiveEnv()]);
+        setEnvs(list);
+        remote.setRoutingEnv(envId);
+        setActiveEnvId(envId);
+      } catch (e) {
+        console.error("Failed to load remote environments:", e);
+      }
       api.logStartupEvent("refresh_app_data_start", performance.now()).catch(() => {});
       await refreshAppData();
       api.logStartupEvent("refresh_app_data_done", performance.now()).catch(() => {});
@@ -227,6 +281,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     const unlistenPromise = listen("app-files-changed", () => {
+      // Local file changes say nothing about a remote library.
+      if (remote.isRemoteRouting()) return;
       if (refreshTimer) {
         clearTimeout(refreshTimer);
       }
@@ -344,7 +400,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Check skill updates on startup (non-blocking, silent). When the user has
   // opted in via the Settings toggle, also apply any available updates.
   useEffect(() => {
-    if (loading || managedSkills.length === 0) return;
+    // A remote session checks updates on demand only: a silent startup round
+    // would hold an ssh session open for every git skill on the host.
+    if (loading || managedSkills.length === 0 || remote.isRemoteRouting()) return;
     const hasGitSkills = managedSkills.some(
       (s) => s.source_type === "git" || s.source_type === "skillssh"
     );
@@ -419,6 +477,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // tray "check for updates" action finishes.
   useEffect(() => {
     const unlistenPromise = listen("skills-auto-updated", async () => {
+      // The background updater works on the local library.
+      if (remote.isRemoteRouting()) return;
       try {
         const skills = await api.getManagedSkills();
         setManagedSkills(skills);
@@ -439,6 +499,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider
       value={{
+        envs,
+        activeEnvId,
+        activeEnv: envs.find((env) => env.id === activeEnvId) ?? null,
+        isRemote,
+        envError,
+        refreshEnvs,
+        switchEnv,
         presets,
         activePreset,
         viewedPreset,

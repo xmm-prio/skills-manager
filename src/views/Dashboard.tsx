@@ -4,11 +4,12 @@ import { Layers, CheckCircle2, Bot, Plus, Download, AlertTriangle } from "lucide
 import { useTranslation } from "react-i18next";
 import { useApp } from "../context/AppContext";
 import { AgentControlSetupCard } from "../components/AgentControlSetupCard";
+import { EnvSwitcher } from "../components/EnvSwitcher";
 
 export function Dashboard() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { tools, projects, managedSkills, openSkillDetailById } = useApp();
+  const { tools, projects, managedSkills, openSkillDetailById, isRemote } = useApp();
 
   const enabledAgents = useMemo(
     () => tools.filter((tool) => tool.installed && tool.enabled),
@@ -49,7 +50,10 @@ export function Dashboard() {
         </p>
       </div>
 
-      <AgentControlSetupCard />
+      <EnvSwitcher />
+
+      {/* Publishes the CLI and the manage-skills skill on this machine only. */}
+      {!isRemote && <AgentControlSetupCard />}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3.5">
@@ -98,16 +102,18 @@ export function Dashboard() {
 
       {/* Actions */}
       <div className="flex gap-3">
-        <button
-          onClick={() => navigate("/install?tab=local")}
-          className="app-button-primary flex-1"
-        >
-          <Download className="w-4 h-4" />
-          {t("dashboard.scanImport")}
-        </button>
+        {!isRemote && (
+          <button
+            onClick={() => navigate("/install?tab=local")}
+            className="app-button-primary flex-1"
+          >
+            <Download className="w-4 h-4" />
+            {t("dashboard.scanImport")}
+          </button>
+        )}
         <button
           onClick={() => navigate("/install")}
-          className="app-button-secondary flex-1"
+          className={isRemote ? "app-button-primary flex-1" : "app-button-secondary flex-1"}
         >
           <Plus className="w-4 h-4 text-tertiary" />
           {t("dashboard.installNew")}
