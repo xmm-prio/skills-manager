@@ -4943,10 +4943,11 @@ checksum = "b2aa850e253778c88a04c3d7323b043aeda9d3e30d5971937c1855769763678e"
 
 [[package]]
 name = "skills-manager"
-version = "1.43.2"
+version = "1.43.3"
 dependencies = [
  "aes-gcm",
  "anyhow",
+ "base64 0.22.1",
  "caseless",
  "chrono",
  "clap",
@@ -4969,6 +4970,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+ "ssh2",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -5056,6 +5058,18 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "ssh2"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f84d13b3b8a0d4e91a2629911e951db1bb8671512f5c09d7d4ba34500ba68c8"
+dependencies = [
+ "bitflags 2.11.0",
+ "libc",
+ "libssh2-sys",
+ "parking_lot",
 ]
 
 [[package]]

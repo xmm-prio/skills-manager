@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.43.3] - 2026-11-02
+
+### Release Overview
+- SSH remote development environments, with password login to remote hosts.
+
+### User-facing
+- **SSH remote development environments** — Switch the whole app to an SSH host from the Dashboard and manage that machine's library, agent deployments and presets through its `skills-manager-cli --json`; the app can install or upgrade the remote CLI in one click.
+- **Password login for remote hosts** — Each environment can use either "Key / ssh-agent" or "Password". Password login uses the app's built-in SSH client and keeps the password only in the system keychain. A new host's key is trusted on first connect and added to `~/.ssh/known_hosts`; a changed key is refused. Servers that only offer `keyboard-interactive` (common with PAM) work too.
+
+### Developer & Governance
+- Added a Windows-only release workflow, `release-windows.yml`; in-app updates and the version check now point to `xmm-prio/skills-manager`.
+
 ## [1.43.2] - 2026-11-01
 
 ### Release Overview

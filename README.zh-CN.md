@@ -153,18 +153,19 @@ npx skills add xingkongliang/skills-manager
 
 ## 远程开发环境（SSH）
 
-如果你的 Agent 跑在远程 Linux 服务器上（比如通过 VS Code Remote-SSH 开发），可以在主页把整个应用切换到那台机器。切换后，技能库、Preset 和 Agent 部署都是远端自己的：应用通过系统的 `ssh` 调用远端的 `skills-manager-cli --json` 完成每一个操作，不会直接读写远端文件。
+如果你的 Agent 跑在远程 Linux 服务器上（比如通过 VS Code Remote-SSH 开发），可以在主页把整个应用切换到那台机器。切换后，技能库、Preset 和 Agent 部署都是远端自己的：应用通过 ssh 调用远端的 `skills-manager-cli --json` 完成每一个操作，不会直接读写远端文件。
 
 ### 前置条件
 
-- 本机有 OpenSSH 客户端（Windows 10/11 自带），并且能**免密登录**远端（密钥或 ssh-agent）。应用以 `BatchMode` 运行 ssh，不会弹出密码框。
-- 首次连接某台主机时，先在终端里 `ssh` 一次以信任主机指纹。
+- 登录方式二选一：
+  - **密钥 / ssh-agent**：本机需要有 OpenSSH 客户端（Windows 10/11 自带），并且能免密登录远端。应用以 `BatchMode` 运行系统 `ssh`，不会弹出密码框。首次连接某台主机前，先在终端里 `ssh` 一次以信任主机指纹。
+  - **密码**：使用应用内置的 SSH 客户端，不依赖系统 `ssh`。必须填写用户名，主机要填真实主机名或 IP（不读取 `~/.ssh/config` 的别名）。密码保存在系统钥匙串里（Windows 凭据管理器、macOS 钥匙串或 Secret Service），不会写入应用数据库。首次连接新主机时会自动信任它的主机密钥并写入 `~/.ssh/known_hosts`；之后如果主机密钥变了，连接会被拒绝。
 - 远端需要 `skills-manager-cli`。应用可以一键安装：在远端用 `curl`（或 `wget`）从 GitHub Release 下载与当前应用版本一致的文件到 `~/.skills-manager/bin/`，不需要 root。因此远端要能访问 GitHub。
 - 官方 Linux 版 CLI 需要 glibc 2.35 及以上（arm64 版需要 2.39 及以上），例如 Ubuntu 22.04+、Debian 12+、RHEL 9+。「测试连接」会检查 glibc 版本并给出提示。
 
 ### 使用
 
-1. 主页「当前环境」卡片 → **管理环境** → **添加环境**，填写名称和主机。主机可以是 `~/.ssh/config` 里的别名；端口、用户、私钥留空时交给 ssh 配置决定。
+1. 主页「当前环境」卡片 → **管理环境** → **添加环境**，填写名称和主机，并选择登录方式。密钥方式下，主机可以是 `~/.ssh/config` 里的别名，端口、用户、私钥留空时交给 ssh 配置决定。密码方式下需要填写用户和密码；以后编辑时密码框留空，会继续使用已保存的密码。
 2. 点击 **测试连接** 查看远端平台、glibc 和 CLI 状态；没有 CLI 时点 **安装 CLI**，CLI 比应用旧时点 **升级 CLI**。
 3. 保存后在「当前环境」下拉框里选择该环境。侧边栏顶部会显示当前远程环境的名称；随时可以切回「本机」。
 

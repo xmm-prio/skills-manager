@@ -3,7 +3,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   Download,
+  KeyRound,
   Loader2,
+  Lock,
   Pencil,
   Plug,
   Plus,
@@ -22,9 +24,11 @@ import {
   LOCAL_ENV_ID,
   saveRemoteEnv,
   testRemoteEnv,
+  type RemoteAuthMethod,
   type RemoteEnv,
   type RemoteEnvProbe,
 } from "../lib/remoteApi";
+import { cn } from "../utils";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 interface Props {
@@ -40,6 +44,10 @@ interface FormState {
   user: string;
   identityFile: string;
   cliPath: string;
+  auth: RemoteAuthMethod;
+  password: string;
+  /** The saved environment already has a password in the keychain. */
+  hasSavedPassword: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -50,9 +58,13 @@ const EMPTY_FORM: FormState = {
   user: "",
   identityFile: "",
   cliPath: "",
+  auth: "key",
+  password: "",
+  hasSavedPassword: false,
 };
 
 function toForm(env: RemoteEnv): FormState {
+  const auth = env.auth ?? "key";
   return {
     id: env.id,
     name: env.name,
@@ -61,19 +73,25 @@ function toForm(env: RemoteEnv): FormState {
     user: env.user ?? "",
     identityFile: env.identity_file ?? "",
     cliPath: env.cli_path ?? "",
+    auth,
+    password: "",
+    hasSavedPassword: auth === "password",
   };
 }
 
 function toEnv(form: FormState): RemoteEnv {
   const port = Number.parseInt(form.port, 10);
+  const isPassword = form.auth === "password";
   return {
     id: form.id,
     name: form.name.trim(),
     host: form.host.trim(),
     port: Number.isFinite(port) && port > 0 ? port : null,
     user: form.user.trim() || null,
-    identity_file: form.identityFile.trim() || null,
+    identity_file: isPassword ? null : form.identityFile.trim() || null,
     cli_path: form.cliPath.trim() || null,
+    auth: form.auth,
+    password: isPassword && form.password !== "" ? form.password : null,
   };
 }
 
@@ -97,7 +115,12 @@ export function RemoteEnvDialog({ open, onClose }: Props) {
     setProbe(null);
     onClose();
   };
-  const canSubmit = !!form && form.name.trim() !== "" && form.host.trim() !== "";
+  const canSubmit =
+    !!form &&
+    form.name.trim() !== "" &&
+    form.host.trim() !== "" &&
+    (form.auth === "key" ||
+      (form.user.trim() !== "" && (form.password !== "" || form.hasSavedPassword)));
 
   const startEdit = (next: FormState) => {
     setForm(next);
@@ -277,24 +300,66 @@ export function RemoteEnvDialog({ open, onClose }: Props) {
                     className={inputClass}
                   />
                 </div>
+                <div className="col-span-2">
+                  <label className={labelClass}>{t("remote.authMethod")}</label>
+                  <div className="app-segmented bg-background">
+                    {(
+                      [
+                        ["key", KeyRound, t("remote.authKey")],
+                        ["password", Lock, t("remote.authPassword")],
+                      ] as const
+                    ).map(([method, Icon, label]) => (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => update({ auth: method })}
+                        className={cn(
+                          "app-segmented-button flex items-center gap-1.5",
+                          form.auth === method
+                            ? "bg-surface-active text-secondary"
+                            : "text-muted hover:text-tertiary"
+                        )}
+                      >
+                        <Icon className="h-3 w-3" /> {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div>
                   <label className={labelClass}>{t("remote.user")}</label>
                   <input
                     value={form.user}
                     onChange={(e) => update({ user: e.target.value })}
-                    placeholder={t("remote.optional")}
+                    placeholder={form.auth === "password" ? t("remote.required") : t("remote.optional")}
                     className={inputClass}
                   />
                 </div>
-                <div>
-                  <label className={labelClass}>{t("remote.identityFile")}</label>
-                  <input
-                    value={form.identityFile}
-                    onChange={(e) => update({ identityFile: e.target.value })}
-                    placeholder="~/.ssh/id_ed25519"
-                    className={inputClass}
-                  />
-                </div>
+                {form.auth === "key" ? (
+                  <div>
+                    <label className={labelClass}>{t("remote.identityFile")}</label>
+                    <input
+                      value={form.identityFile}
+                      onChange={(e) => update({ identityFile: e.target.value })}
+                      placeholder="~/.ssh/id_ed25519"
+                      className={inputClass}
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className={labelClass}>{t("remote.password")}</label>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={form.password}
+                      onChange={(e) => update({ password: e.target.value })}
+                      placeholder={form.hasSavedPassword ? t("remote.passwordKeep") : ""}
+                      className={inputClass}
+                    />
+                  </div>
+                )}
+                {form.auth === "password" && (
+                  <p className="col-span-2 -mt-1 text-[12px] text-muted">{t("remote.passwordHint")}</p>
+                )}
                 <div className="col-span-2">
                   <label className={labelClass}>{t("remote.cliPath")}</label>
                   <input

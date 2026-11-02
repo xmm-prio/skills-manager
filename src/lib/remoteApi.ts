@@ -24,7 +24,13 @@ export interface RemoteEnv {
   user: string | null;
   identity_file: string | null;
   cli_path: string | null;
+  /** Missing on environments saved before password login existed. */
+  auth?: RemoteAuthMethod;
+  /** Write-only: sent on save/test, never returned. Empty keeps the stored one. */
+  password?: string | null;
 }
+
+export type RemoteAuthMethod = "key" | "password";
 
 export interface RemoteEnvProbe {
   platform: string | null;

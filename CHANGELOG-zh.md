@@ -5,6 +5,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.43.3] - 2026-11-02
+
+### 发布概览
+- 新增 SSH 远程开发环境，并支持用密码登录远程主机。
+
+### 用户可见更新
+- **SSH 远程开发环境** — 在主页把整个应用切换到一台 SSH 远程主机，通过远端的 `skills-manager-cli --json` 管理那台机器上的技能库、Agent 部署和 Preset；应用可一键在远端安装或升级 CLI。
+- **远程主机支持密码登录** — 管理环境时可以在「密钥 / ssh-agent」和「密码」之间选择。密码方式使用应用内置的 SSH 客户端，密码只保存在系统钥匙串里；首次连接新主机时自动信任其主机密钥并写入 `~/.ssh/known_hosts`，之后主机密钥变化会拒绝连接。服务器只开放 `keyboard-interactive`（常见于 PAM）时也能登录。
+
+### 开发者与治理更新
+- 新增仅构建 Windows 的发布工作流 `release-windows.yml`；应用内更新与版本检查改为指向 `xmm-prio/skills-manager`。
+
 ## [1.43.2] - 2026-11-01
 
 ### 发布概览

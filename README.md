@@ -157,18 +157,19 @@ The Backup page offers three levels: **disconnect this machine** (other devices 
 
 ## Remote environments (SSH)
 
-If your agents run on a remote Linux server (for example through VS Code Remote-SSH), you can switch the whole app to that machine from the Dashboard. The library, presets and agent deployments are then the remote host's own: every operation is a call to the host's `skills-manager-cli --json` over the system `ssh`, and the app never reads or writes remote files directly.
+If your agents run on a remote Linux server (for example through VS Code Remote-SSH), you can switch the whole app to that machine from the Dashboard. The library, presets and agent deployments are then the remote host's own: every operation is a call to the host's `skills-manager-cli --json` over ssh, and the app never reads or writes remote files directly.
 
 ### Requirements
 
-- An OpenSSH client on this computer (built into Windows 10/11) and **key-based login** to the host (a key or ssh-agent). ssh runs in `BatchMode`, so there is no password prompt.
-- Connect to a new host once with `ssh` in a terminal to trust its host key.
+- One of two login methods:
+  - **Key / ssh-agent**: an OpenSSH client on this computer (built into Windows 10/11) and key-based login to the host. The system `ssh` runs in `BatchMode`, so there is no password prompt. Connect to a new host once with `ssh` in a terminal to trust its host key.
+  - **Password**: uses the app's built-in SSH client instead of the system `ssh`. A user is required, and the host must be a real host name or IP (`~/.ssh/config` aliases are not read). The password is kept in the system keychain (Windows Credential Manager, macOS Keychain or Secret Service), never in the app database. A new host's key is trusted on first connect and added to `~/.ssh/known_hosts`; if it changes later, the connection is refused.
 - `skills-manager-cli` on the host. The app can install it in one click: the host downloads the release file matching this app's version from GitHub with `curl` (or `wget`) into `~/.skills-manager/bin/`, without root. The host therefore needs access to GitHub.
 - The release Linux CLI needs glibc 2.35 or newer (2.39 for arm64), e.g. Ubuntu 22.04+, Debian 12+, RHEL 9+. **Test connection** checks the glibc version.
 
 ### Usage
 
-1. On the Dashboard's environment card, open **Manage environments** → **Add environment** and enter a name and host. The host can be a `~/.ssh/config` alias; leave port, user and identity file empty to use your ssh config.
+1. On the Dashboard's environment card, open **Manage environments** → **Add environment** and enter a name and host, then pick the login method. With key login the host can be a `~/.ssh/config` alias; leave port, user and identity file empty to use your ssh config. With password login enter the user and password; when editing later, leave the password empty to keep the saved one.
 2. **Test connection** reports the platform, glibc and CLI status. Use **Install CLI** when the CLI is missing and **Upgrade CLI** when it is older than the app.
 3. Save, then pick the environment in the environment selector. The sidebar shows the active remote environment; switch back to **This computer** at any time.
 

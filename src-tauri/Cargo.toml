@@ -1,6 +1,6 @@
 [package]
 name = "skills-manager"
-version = "1.43.2"
+version = "1.43.3"
 description = "Skills Manager - AI Agent Skills Central Manager"
 authors = ["tianliang"]
 license = "MIT"
@@ -42,6 +42,8 @@ chrono = "0.4"
 gethostname = "1"
 serde_yaml = "0.9"
 git2 = { version = "0.19", features = ["vendored-openssl"] }
+ssh2 = "0.9"
+base64 = "0.22"
 tokio = { version = "1", features = ["full"] }
 regex = "1"
 hex = "0.4"
