@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions / 讨论
+    url: https://github.com/xingkongliang/skills-manager/discussions
+    about: Questions, ideas, or general discussion. / 提问、想法、闲聊请到 Discussions。
+  - name: Website / 官网
+    url: https://skillsmanager.dev
+    about: Downloads, feature overview, and the quick start. / 下载、功能介绍与快速上手。
