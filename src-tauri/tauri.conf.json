@@ -31,9 +31,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERBRUYwMTBDOEQ3MDdEODAKUldTQWZYQ05EQUh2Mm0wNDZtNm5VYWJpbjRaZVJQRUhrQ2tkOXc3MHBWZ2VaREo0OVd3WEU3d0oK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ1NkM5MDFCNjYxRjc3ODgKUldTSWR4OW1HNUJzMVFUTTkzMmZoWWF3bXlNTmpJL2l1dGwxckV6dEVhay9jaU1YYzNHdjhiTVYK",
       "endpoints": [
-        "https://github.com/xingkongliang/skills-manager/releases/latest/download/latest.json"
+        "https://github.com/xmm-prio/skills-manager/releases/latest/download/latest.json"
       ]
     }
   },

@@ -1,0 +1,122 @@
+name: Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (defaults to v<package.json version>)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    name: Build & Release (Windows-x64)
+    timeout-minutes: 60
+    env:
+      TARGET: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          targets: ${{ env.TARGET }}
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+          save-if: false
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # The tag is created by the release itself through GITHUB_TOKEN, which does
+      # not fire push events, so release.yml (all platforms, Apple signing) stays idle.
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${INPUT_TAG:-v${VERSION}}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          BODY_ZH=$(sed -n "/^## \[${VERSION}\]/,/^## \[/{ /^## \[${VERSION}\]/d; /^## \[/d; p; }" CHANGELOG-zh.md | awk -f scripts/strip-empty-sections.awk)
+          {
+            echo "body<<EOF"
+            echo "## Skills Manager ${TAG}（Windows）"
+            echo ""
+            echo "基于上游 \`v${VERSION}\` 的 fork 版本，新增 SSH 远程开发环境管理。仅提供 Windows x64 安装包与 CLI。"
+            echo ""
+            echo "### 上游 ${VERSION} 变更"
+            echo ""
+            echo "$BODY_ZH"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build CLI binary
+        run: >-
+          cargo build --release
+          --manifest-path src-tauri/Cargo.toml
+          --bin skills-manager-cli
+          --target ${{ env.TARGET }}
+
+      - name: Build with Tauri
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ steps.meta.outputs.tag }}
+          releaseName: "Skills Manager ${{ steps.meta.outputs.tag }}"
+          releaseBody: ${{ steps.meta.outputs.body }}
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ env.TARGET }}
+
+      - name: Upload CLI binary to draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CLI_UPLOAD="$RUNNER_TEMP/skills-manager-cli-Windows-x64.exe"
+          cp "src-tauri/target/${TARGET}/release/skills-manager-cli.exe" "$CLI_UPLOAD"
+          gh release upload "${{ steps.meta.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            "$CLI_UPLOAD" --clobber
+
+      - name: Verify updater metadata and publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/verify"
+          mkdir -p "$DIR"
+          gh release download "$TAG" --repo "${{ github.repository }}" \
+            --pattern latest.json --dir "$DIR"
+          if ! jq -e '.platforms["windows-x86_64"].signature and .platforms["windows-x86_64"].url' "$DIR/latest.json" >/dev/null; then
+            echo "latest.json is missing a signed windows-x86_64 entry" >&2
+            cat "$DIR/latest.json" >&2
+            exit 1
+          fi
+          gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false
+          echo "Published $TAG"
