@@ -4,6 +4,7 @@ use std::time::Instant;
 use tauri::State;
 
 use crate::core::{
+    central_repo,
     error::AppError,
     remote_env::{self, RemoteEnv, RemoteEnvProbe},
     skill_store::SkillStore,
@@ -84,13 +85,25 @@ pub async fn test_remote_env(env: RemoteEnv) -> Result<RemoteEnvProbe, AppError>
     .await?
 }
 
+/// Returns the probe taken right after installing, in the same session.
 #[tauri::command]
-pub async fn install_remote_cli(env: RemoteEnv) -> Result<String, AppError> {
+pub async fn install_remote_cli(
+    env: RemoteEnv,
+    store: State<'_, Arc<SkillStore>>,
+) -> Result<RemoteEnvProbe, AppError> {
+    let proxy_url = store.proxy_url();
     tauri::async_runtime::spawn_blocking(move || {
         let env = remote_env::normalize_env(env)?;
-        let version = remote_env::install_cli(&env)?;
-        log::info!("remote CLI {version} installed on {}", env.host);
-        Ok(version)
+        let started = Instant::now();
+        let cache_dir = central_repo::base_dir().join("cache").join("remote-cli");
+        let probe = remote_env::install_cli(&env, proxy_url.as_deref(), &cache_dir)?;
+        log::info!(
+            "remote CLI {:?} installed on {} in {} ms",
+            probe.cli_version,
+            env.host,
+            started.elapsed().as_millis()
+        );
+        Ok(probe)
     })
     .await?
 }

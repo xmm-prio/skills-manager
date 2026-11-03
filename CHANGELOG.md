@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.44.0] - 2026-11-03
+
+### Release Overview
+- Project and linked workspaces in remote environments; the remote CLI is now downloaded on this computer and uploaded over SSH, so remote hosts need no GitHub access and installs are faster.
+
+### User-facing
+- **Project workspaces in remote environments** — In a remote session the sidebar lists the remote host's project and linked workspaces, with the same features as on this computer: add, scan, reorder, remove, compare project skills with the library, import, export, update in either direction, enable/disable and delete. Paths are typed as remote folders (`~` works). A remote CLI older than 1.44.0 is reported as needing an upgrade.
+- **Faster, sturdier remote CLI install** — The remote host used to download the CLI from GitHub with curl, but a non-interactive ssh session does not load the proxy variables from the login shell, so downloads were slow or timed out. The app now downloads the CLI matching its version on this computer through Settings → Network proxy (cached per version), uploads it over SSH, and only replaces the old one after checking its size and running `--version`; install and the follow-up probe share one SSH session. Downloads have connect and total timeouts and point at the proxy setting on failure.
+
+### Developer & Governance
+- The `projects.rs` Tauri command logic moved into public `*_internal(store, …)` functions, and the CLI gained a `projects` group (`list`, `add`, `add-linked`, `remove`, `reorder`, `scan`, `agents`, `skills`, `show-skill`, `import`, `export`, `pull`, `enable`, `disable`, `delete-skill`); `projects` is on the remote allowlist.
+
 ## [1.43.4] - 2026-11-03
 
 ### Release Overview

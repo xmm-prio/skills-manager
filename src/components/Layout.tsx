@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { StatusBanner } from "./StatusBanner";
@@ -11,17 +11,26 @@ import { cn } from "../utils";
 
 export function Layout() {
   const { t } = useTranslation();
-  const { appError, refreshAppData, isRemote } = useApp();
+  const { appError, refreshAppData, isRemote, activeEnvId } = useApp();
   const onDrag = useDragWindow();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const shownEnvId = useRef(activeEnvId);
 
   // Pages for local-only features have nothing to show in a remote session.
   useEffect(() => {
-    if (isRemote && (pathname === "/backup" || pathname.startsWith("/project/"))) {
+    if (isRemote && pathname === "/backup") {
       navigate("/", { replace: true });
     }
   }, [isRemote, pathname, navigate]);
+
+  // Workspace ids belong to one environment, so an open workspace page is
+  // stale once the environment changes.
+  useEffect(() => {
+    if (shownEnvId.current === activeEnvId) return;
+    shownEnvId.current = activeEnvId;
+    if (pathname.startsWith("/project/")) navigate("/", { replace: true });
+  }, [activeEnvId, pathname, navigate]);
 
   // Cmd+, to open Settings
   useEffect(() => {

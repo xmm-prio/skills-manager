@@ -39,10 +39,16 @@ const UNAME_MARKER: &str = "__SM_UNAME__";
 const LDD_MARKER: &str = "__SM_LDD__";
 const CLI_PATH_MARKER: &str = "__SM_CLI_PATH__";
 const CLI_VERSION_MARKER: &str = "__SM_CLI_VERSION__";
-const NO_DOWNLOADER_MARKER: &str = "__SM_NO_DOWNLOADER__";
+const UPLOAD_SIZE_MARKER: &str = "__SM_UPLOAD_SIZE__";
+
+/// Remote hosts often reach GitHub only through a proxy set in a login shell
+/// profile, which a non-interactive `ssh host cmd` never loads. The CLI is
+/// therefore fetched here, through the app's own proxy setting, and uploaded.
+const DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 /// Top-level CLI command groups the app is allowed to drive remotely.
-const ALLOWED_COMMAND_GROUPS: &[&str] = &["repo", "agents", "tools", "skills", "presets"];
+const ALLOWED_COMMAND_GROUPS: &[&str] = &["repo", "agents", "tools", "skills", "presets", "projects"];
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -462,30 +468,25 @@ fn build_probe_script(cli_path: Option<&str>) -> String {
     script
 }
 
-fn build_install_script(cli_path: Option<&str>, asset: &str, app_version: &str) -> String {
+/// Writes the CLI arriving on stdin into place, then probes again in the same
+/// session so the caller needs no third connection to show the result.
+fn build_install_script(cli_path: Option<&str>, expected_size: usize) -> String {
     let dest = remote_path_expr(cli_path.unwrap_or(DEFAULT_REMOTE_CLI_PATH));
-    let pinned_url = format!("{RELEASE_BASE_URL}/download/v{app_version}/{asset}");
-    let latest_url = format!("{RELEASE_BASE_URL}/latest/download/{asset}");
     format!(
         r#"set -e
 DEST={dest}
 mkdir -p "$(dirname "$DEST")"
-TMP="$DEST.download.$$"
+TMP="$DEST.upload.$$"
 trap 'rm -f "$TMP"' EXIT
-fetch() {{
-  if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 2 -o "$TMP" "$1"
-  elif command -v wget >/dev/null 2>&1; then wget -q -O "$TMP" "$1"
-  else echo {NO_DOWNLOADER_MARKER}; exit 3
-  fi
-}}
-fetch {pinned} || fetch {latest}
+cat > "$TMP"
+SIZE=$(wc -c < "$TMP" | tr -d ' ')
+if [ "$SIZE" != "{expected_size}" ]; then echo "{UPLOAD_SIZE_MARKER}$SIZE"; exit 4; fi
 chmod +x "$TMP"
 "$TMP" --version >/dev/null
 mv -f "$TMP" "$DEST"
-echo "{CLI_VERSION_MARKER}$("$DEST" --version | head -n 1)"
-"#,
-        pinned = shell_quote(&pinned_url),
-        latest = shell_quote(&latest_url),
+set +e
+{probe}"#,
+        probe = build_probe_script(cli_path),
     )
 }
 
@@ -561,16 +562,34 @@ struct SshOutput {
 }
 
 fn run_ssh(env: &RemoteEnv, script: &str) -> Result<SshOutput, AppError> {
+    run_ssh_with_input(env, script, None)
+}
+
+/// `input`, when given, is streamed to the remote script's stdin and then
+/// closed, so the script can `cat` it into a file.
+fn run_ssh_with_input(
+    env: &RemoteEnv,
+    script: &str,
+    input: Option<&[u8]>,
+) -> Result<SshOutput, AppError> {
     match env.auth {
-        AuthMethod::Key => run_system_ssh(env, script),
-        AuthMethod::Password => run_password_ssh(env, script),
+        AuthMethod::Key => run_system_ssh(env, script, input),
+        AuthMethod::Password => run_password_ssh(env, script, input),
     }
 }
 
-fn run_system_ssh(env: &RemoteEnv, script: &str) -> Result<SshOutput, AppError> {
+fn run_system_ssh(
+    env: &RemoteEnv,
+    script: &str,
+    input: Option<&[u8]>,
+) -> Result<SshOutput, AppError> {
     let mut cmd = Command::new(ssh_program());
     cmd.args(ssh_args(env, script))
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(target_os = "windows")]
@@ -583,13 +602,25 @@ fn run_system_ssh(env: &RemoteEnv, script: &str) -> Result<SshOutput, AppError> 
         cmd.env_remove("LD_LIBRARY_PATH");
     }
 
-    let output = cmd.output().map_err(|e| {
+    let mut child = cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             AppError::not_found("ssh was not found on this computer; install an OpenSSH client")
         } else {
             AppError::io(format!("Failed to start ssh: {e}"))
         }
     })?;
+    // Written from a thread so a full stdout pipe cannot deadlock the upload.
+    let writer = match (input, child.stdin.take()) {
+        (Some(data), Some(mut stdin)) => {
+            let data = data.to_vec();
+            Some(std::thread::spawn(move || stdin.write_all(&data)))
+        }
+        _ => None,
+    };
+    let output = child
+        .wait_with_output()
+        .map_err(|e| AppError::io(format!("Failed to run ssh: {e}")))?;
+    let write_result = writer.map(|handle| handle.join());
     let result = SshOutput {
         status: output.status.code(),
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -599,7 +630,23 @@ fn run_system_ssh(env: &RemoteEnv, script: &str) -> Result<SshOutput, AppError> 
     if result.status == Some(255) {
         return Err(connection_error(&result.stderr));
     }
-    Ok(result)
+    match write_result {
+        Some(Ok(Err(e))) => Err(AppError::network(format!(
+            "SSH session closed while uploading: {e}{}",
+            stderr_suffix(&result.stderr)
+        ))),
+        Some(Err(_)) => Err(AppError::internal("ssh upload thread panicked")),
+        _ => Ok(result),
+    }
+}
+
+fn stderr_suffix(stderr: &str) -> String {
+    let detail = stderr.trim();
+    if detail.is_empty() {
+        String::new()
+    } else {
+        format!(": {detail}")
+    }
 }
 
 fn connection_error(stderr: &str) -> AppError {
@@ -626,7 +673,11 @@ fn ssh2_error(stage: &str, err: ssh2::Error) -> AppError {
     AppError::network(format!("SSH connection failed: {stage}: {err}"))
 }
 
-fn run_password_ssh(env: &RemoteEnv, script: &str) -> Result<SshOutput, AppError> {
+fn run_password_ssh(
+    env: &RemoteEnv,
+    script: &str,
+    input: Option<&[u8]>,
+) -> Result<SshOutput, AppError> {
     let user = env
         .user
         .as_deref()
@@ -674,6 +725,12 @@ fn run_password_ssh(env: &RemoteEnv, script: &str) -> Result<SshOutput, AppError
     channel
         .exec(&format!("sh -c {}", shell_quote(script)))
         .map_err(|e| ssh2_error("exec", e))?;
+    if let Some(data) = input {
+        channel
+            .write_all(data)
+            .map_err(|e| AppError::network(format!("SSH session closed while uploading: {e}")))?;
+    }
+    channel.send_eof().map_err(|e| ssh2_error("send eof", e))?;
     let mut stdout = Vec::new();
     channel
         .read_to_end(&mut stdout)
@@ -1220,43 +1277,135 @@ pub fn probe(env: &RemoteEnv) -> Result<RemoteEnvProbe, AppError> {
     Ok(parse_probe(&output.stdout, app_version()))
 }
 
-/// Download the release CLI matching the remote platform and this app's
-/// version. Returns the installed version.
-pub fn install_cli(env: &RemoteEnv) -> Result<String, AppError> {
-    let probe = probe(env)?;
-    let platform = probe.platform.clone().unwrap_or_default();
-    let asset = probe.cli_asset.clone().ok_or_else(|| {
+/// Executable header check, so an HTML error page is never installed.
+fn looks_like_executable(bytes: &[u8]) -> bool {
+    const MAGICS: &[&[u8]] = &[
+        b"\x7fELF",
+        &[0xcf, 0xfa, 0xed, 0xfe],
+        &[0xfe, 0xed, 0xfa, 0xcf],
+        &[0xca, 0xfe, 0xba, 0xbe],
+    ];
+    MAGICS.iter().any(|magic| bytes.starts_with(magic))
+}
+
+/// The release CLI for `asset`, preferring this app's version and falling
+/// back to the latest release. Pinned downloads are cached under `cache_dir`
+/// so installing on several hosts downloads each build once.
+pub fn fetch_release_cli(
+    asset: &str,
+    version: &str,
+    proxy_url: Option<&str>,
+    cache_dir: &Path,
+) -> Result<Vec<u8>, AppError> {
+    let cached = cache_dir.join(format!("v{version}")).join(asset);
+    if let Ok(bytes) = std::fs::read(&cached) {
+        if looks_like_executable(&bytes) {
+            return Ok(bytes);
+        }
+    }
+
+    let mut builder = reqwest::blocking::Client::builder()
+        .user_agent("skills-manager")
+        .connect_timeout(DOWNLOAD_CONNECT_TIMEOUT)
+        .timeout(DOWNLOAD_TIMEOUT);
+    if let Some(proxy) = proxy_url.filter(|p| !p.is_empty()) {
+        let proxy = reqwest::Proxy::all(proxy)
+            .map_err(|e| AppError::invalid_input(format!("Invalid proxy URL: {e}")))?;
+        builder = builder.proxy(proxy);
+    }
+    let client = builder.build().map_err(AppError::internal)?;
+
+    let download = |url: &str| -> Result<Option<Vec<u8>>, AppError> {
+        let resp = client.get(url).send().map_err(|e| download_error(asset, &e))?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let resp = resp.error_for_status().map_err(|e| download_error(asset, &e))?;
+        let bytes = resp.bytes().map_err(|e| download_error(asset, &e))?;
+        Ok(Some(bytes.to_vec()))
+    };
+
+    let pinned_url = format!("{RELEASE_BASE_URL}/download/v{version}/{asset}");
+    let (bytes, pinned) = match download(&pinned_url)? {
+        Some(bytes) => (bytes, true),
+        None => {
+            let latest_url = format!("{RELEASE_BASE_URL}/latest/download/{asset}");
+            let bytes = download(&latest_url)?.ok_or_else(|| {
+                AppError::not_found(format!("{asset} is not published in {RELEASE_BASE_URL}"))
+            })?;
+            (bytes, false)
+        }
+    };
+    if !looks_like_executable(&bytes) {
+        return Err(AppError::network(format!(
+            "Downloaded {asset} is not an executable; a proxy or captive portal may have replaced it"
+        )));
+    }
+
+    if pinned {
+        if let Some(dir) = cached.parent() {
+            let tmp = cached.with_extension("part");
+            let _ = std::fs::remove_file(&cached);
+            let saved = std::fs::create_dir_all(dir)
+                .and_then(|_| std::fs::write(&tmp, &bytes))
+                .and_then(|_| std::fs::rename(&tmp, &cached));
+            if let Err(err) = saved {
+                log::warn!("remote CLI cache: failed to save {}: {err}", cached.display());
+            }
+        }
+    }
+    Ok(bytes)
+}
+
+fn download_error(asset: &str, err: &reqwest::Error) -> AppError {
+    let hint = if err.is_timeout() || err.is_connect() {
+        ". If this computer reaches GitHub through a proxy, set it under Settings → Network proxy"
+    } else {
+        ""
+    };
+    AppError::network(format!("Failed to download {asset}: {err}{hint}"))
+}
+
+/// Install the release CLI matching the remote platform and this app's
+/// version: download it here, upload it over ssh. Returns a fresh probe.
+pub fn install_cli(
+    env: &RemoteEnv,
+    proxy_url: Option<&str>,
+    cache_dir: &Path,
+) -> Result<RemoteEnvProbe, AppError> {
+    let before = probe(env)?;
+    let platform = before.platform.clone().unwrap_or_default();
+    let asset = before.cli_asset.clone().ok_or_else(|| {
         AppError::invalid_input(format!(
             "No skills-manager-cli build is available for remote platform '{platform}'"
         ))
     })?;
 
-    let script = build_install_script(env.cli_path.as_deref(), &asset, app_version());
-    let output = run_ssh(env, &script)?;
-    if output.stdout.contains(NO_DOWNLOADER_MARKER) {
-        return Err(AppError::not_found(
-            "Neither curl nor wget is available on the remote host",
-        ));
-    }
+    let bytes = fetch_release_cli(&asset, app_version(), proxy_url, cache_dir)?;
+    let script = build_install_script(env.cli_path.as_deref(), bytes.len());
+    let output = run_ssh_with_input(env, &script, Some(&bytes))?;
     if output.status != Some(0) {
         let mut message = format!("Failed to install skills-manager-cli ({asset})");
-        if probe.glibc_supported == Some(false) {
+        if let Some(size) = marker_value(&output.stdout, UPLOAD_SIZE_MARKER) {
+            message.push_str(&format!(
+                ": upload incomplete ({size} of {} bytes arrived)",
+                bytes.len()
+            ));
+        } else if before.glibc_supported == Some(false) {
             message.push_str(&format!(
                 ": remote glibc {} is older than the required {}",
-                probe.glibc_version.as_deref().unwrap_or("?"),
-                probe.glibc_required.as_deref().unwrap_or("?"),
+                before.glibc_version.as_deref().unwrap_or("?"),
+                before.glibc_required.as_deref().unwrap_or("?"),
             ));
         }
-        let detail = output.stderr.trim();
-        if !detail.is_empty() {
-            message.push_str(&format!(": {detail}"));
-        }
+        message.push_str(&stderr_suffix(&output.stderr));
         return Err(AppError::network(message));
     }
-    marker_value(&output.stdout, CLI_VERSION_MARKER)
-        .as_deref()
-        .and_then(parse_cli_version)
-        .ok_or_else(|| AppError::internal("Installed CLI did not report a version"))
+    let after = parse_probe(&output.stdout, app_version());
+    if after.cli_version.is_none() {
+        return Err(AppError::internal("Installed CLI did not report a version"));
+    }
+    Ok(after)
 }
 
 #[cfg(test)]
@@ -1570,11 +1719,49 @@ mod tests {
     }
 
     #[test]
-    fn install_script_pins_app_version_with_latest_fallback() {
-        let script = build_install_script(None, "skills-manager-cli-Linux-x64", "1.43.2");
-        assert!(script.contains("/download/v1.43.2/skills-manager-cli-Linux-x64"));
-        assert!(script.contains("/latest/download/skills-manager-cli-Linux-x64"));
+    fn install_script_takes_the_cli_from_stdin_and_reprobes() {
+        let script = build_install_script(None, 1234);
         assert!(script.contains("DEST=\"$HOME\"/'.skills-manager/bin/skills-manager-cli'"));
+        assert!(script.contains("cat > \"$TMP\""));
+        assert!(script.contains("\"$SIZE\" != \"1234\""));
+        assert!(!script.contains("curl") && !script.contains("wget"));
+        // The probe runs after `set +e`, in the same session as the upload.
+        let reprobe = script.find("set +e").unwrap();
+        assert!(script[reprobe..].contains(UNAME_MARKER));
+        assert!(script[reprobe..].contains(CLI_VERSION_MARKER));
+    }
+
+    #[test]
+    fn install_output_parses_as_a_fresh_probe() {
+        let stdout = "__SM_UNAME__Linux x86_64\n__SM_LDD__ldd (GNU libc) 2.35\n__SM_CLI_PATH__/home/a/.skills-manager/bin/skills-manager-cli\n__SM_CLI_VERSION__skills-manager-cli 1.43.5\n";
+        let probe = parse_probe(stdout, "1.43.5");
+        assert_eq!(probe.cli_version.as_deref(), Some("1.43.5"));
+        assert!(!probe.cli_outdated);
+    }
+
+    #[test]
+    fn cached_cli_is_used_without_downloading() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cached = tmp.path().join("v9.9.9").join("skills-manager-cli-Linux-x64");
+        std::fs::create_dir_all(cached.parent().unwrap()).unwrap();
+        std::fs::write(&cached, b"\x7fELF-cached").unwrap();
+        // An unroutable proxy proves no request is made.
+        let bytes = fetch_release_cli(
+            "skills-manager-cli-Linux-x64",
+            "9.9.9",
+            Some("http://127.0.0.1:9"),
+            tmp.path(),
+        )
+        .unwrap();
+        assert_eq!(bytes, b"\x7fELF-cached");
+    }
+
+    #[test]
+    fn only_executables_pass_the_header_check() {
+        assert!(looks_like_executable(b"\x7fELF\x02\x01"));
+        assert!(looks_like_executable(&[0xcf, 0xfa, 0xed, 0xfe, 7]));
+        assert!(!looks_like_executable(b"<!DOCTYPE html>"));
+        assert!(!looks_like_executable(b""));
     }
 
     #[test]

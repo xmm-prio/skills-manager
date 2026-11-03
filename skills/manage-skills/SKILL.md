@@ -297,6 +297,24 @@ The no-`--agent` defaults intentionally differ: deploy targets all installed, en
 
 Preset create/update/delete and add-skill/remove-skill are organization-only CLI operations. They never deploy or undeploy agent files implicitly.
 
+## Project workspaces
+
+Project-local skill folders (e.g. `<repo>/.claude/skills`) and linked folders, the same workspaces the app's sidebar shows. `<project>` is a workspace id or name; `<skill>` is the folder path under the agent's skills root, as listed by `projects skills`.
+
+```bash
+"$SM" projects list
+"$SM" projects add ~/work/my-app
+"$SM" projects add-linked ~/.hermes/skills --name Hermes
+"$SM" projects scan ~/work                     # candidate folders, nothing is added
+"$SM" --json projects skills my-app            # sync_status vs the library per skill
+"$SM" projects export my-app <library-skill> --agent claude_code
+"$SM" projects import my-app <skill> --agent claude_code   # copy into / refresh the library
+"$SM" projects pull my-app <skill> --agent claude_code     # overwrite project copy from library
+"$SM" projects disable my-app <skill> --agent claude_code
+"$SM" projects delete-skill my-app <skill> --agent claude_code --yes
+"$SM" projects remove my-app                   # forgets the workspace, files stay
+```
+
 ## Health check
 
 When sync misbehaves or a command errors in a confusing way:

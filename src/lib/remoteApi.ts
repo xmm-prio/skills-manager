@@ -6,6 +6,10 @@ import type {
   BatchUpdateSkillsResult,
   ManagedSkill,
   Preset,
+  Project,
+  ProjectAgentTarget,
+  ProjectSkill,
+  ProjectSkillDocument,
   SkillDocument,
   SkillToolToggle,
   ToolInfo,
@@ -67,8 +71,9 @@ export const setActiveEnv = (id: string) =>
 export const testRemoteEnv = (env: RemoteEnv) =>
   tauriInvoke<RemoteEnvProbe>("test_remote_env", { env });
 
+/** Resolves to the probe taken right after installing. */
 export const installRemoteCli = (env: RemoteEnv) =>
-  tauriInvoke<string>("install_remote_cli", { env });
+  tauriInvoke<RemoteEnvProbe>("install_remote_cli", { env });
 
 let activeEnvId = LOCAL_ENV_ID;
 
@@ -347,6 +352,30 @@ const deploy = (skillId: unknown, tool: unknown, enabled: boolean) =>
     () => undefined
   );
 
+function isOldCliError(error: unknown) {
+  const message = (error as AppError | undefined)?.message;
+  return typeof message === "string" && message.includes("unrecognized subcommand 'projects'");
+}
+
+/** CLIs before 1.44 have no `projects` group; say so instead of echoing clap. */
+const projectsCli = <T = unknown>(args: string[]) =>
+  remoteCli<T>(["projects", ...args]).catch((error: unknown) => {
+    if (isOldCliError(error)) {
+      throw { kind: "invalid_input", code: REMOTE_UNSUPPORTED, message: i18next.t("remote.projectsNeedNewerCli") };
+    }
+    throw error;
+  });
+
+const projectSkillArgs = ({ projectId, skillRelativePath, agent }: Args) => [
+  str(projectId),
+  str(skillRelativePath),
+  "--agent",
+  str(agent),
+];
+
+const projectSkillCommand = (subcommand: string, extra: string[] = []) => (args: Args) =>
+  projectsCli([subcommand, ...projectSkillArgs(args), ...extra]).then(() => undefined);
+
 const remoteHandlers: Record<string, Handler> = {
   // Agents
   get_tool_status: () => remoteCli<ToolInfo[]>(["agents", "list"]),
@@ -510,8 +539,45 @@ const remoteHandlers: Record<string, Handler> = {
     remoteCli(["presets", "remove-skill", str(presetId), str(skillId)]).then(() => undefined),
   get_preset_skill_order: async () => [],
 
+  // Project workspaces: folders on the remote host
+  get_projects: () =>
+    projectsCli<Project[]>(["list"]).catch((error: unknown) => {
+      // The sidebar loads this on every refresh; an old CLI just has none.
+      if ((error as { code?: string })?.code === REMOTE_UNSUPPORTED) return [];
+      throw error;
+    }),
+  add_project: ({ path }) => projectsCli<Project>(["add", str(path)]),
+  add_linked_workspace: ({ name, path, disabledPath }) =>
+    projectsCli<Project>([
+      "add-linked",
+      str(path),
+      "--name",
+      str(name),
+      ...optional("--disabled-path", disabledPath),
+    ]),
+  remove_project: ({ id }) => projectsCli(["remove", str(id)]).then(() => undefined),
+  reorder_projects: ({ ids }) =>
+    projectsCli(["reorder", ...((ids as string[]) ?? [])]).then(() => undefined),
+  scan_projects: ({ root }) => projectsCli<string[]>(["scan", str(root)]),
+  get_project_agent_targets: ({ projectId }) =>
+    projectsCli<ProjectAgentTarget[]>(["agents", str(projectId)]),
+  get_project_skills: ({ projectId }) => projectsCli<ProjectSkill[]>(["skills", str(projectId)]),
+  get_project_skill_document: (args) =>
+    projectsCli<ProjectSkillDocument>(["show-skill", ...projectSkillArgs(args)]),
+  import_project_skill_to_center: projectSkillCommand("import"),
+  update_project_skill_to_center: projectSkillCommand("import"),
+  update_project_skill_from_center: projectSkillCommand("pull"),
+  toggle_project_skill: (args) => projectSkillCommand(args.enabled ? "enable" : "disable")(args),
+  delete_project_skill: projectSkillCommand("delete-skill", ["--yes"]),
+  export_skill_to_project: ({ skillId, projectId, agents }) =>
+    projectsCli([
+      "export",
+      str(projectId),
+      str(skillId),
+      ...((agents as string[] | null) ?? []).flatMap((agent) => ["--agent", agent]),
+    ]).then(() => undefined),
+
   // Local-machine features with no remote counterpart yet
-  get_projects: async () => [],
   get_global_local_skills: async () => [],
 };
 

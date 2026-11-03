@@ -149,9 +149,9 @@ export function RemoteEnvDialog({ open, onClose }: Props) {
     setInstalling(true);
     const toastId = toast.loading(t("remote.installing"));
     try {
-      const version = await installRemoteCli(toEnv(form));
-      toast.success(t("remote.installed", { version }), { id: toastId });
-      setProbe(await testRemoteEnv(toEnv(form)).catch(() => null));
+      const next = await installRemoteCli(toEnv(form));
+      toast.success(t("remote.installed", { version: next.cli_version ?? "?" }), { id: toastId });
+      setProbe(next);
     } catch (error) {
       toast.error(getErrorMessage(error, t("common.error")), { id: toastId });
     } finally {

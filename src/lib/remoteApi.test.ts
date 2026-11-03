@@ -123,6 +123,35 @@ describe("routedInvoke", () => {
     ]);
   });
 
+  it("maps project workspace commands onto the CLI projects group", async () => {
+    answerRemote(() => ({ ok: true, data: null }));
+    const skill = { projectId: "p1", skillRelativePath: "team/db", agent: "claude_code" };
+    await routedInvoke("add_linked_workspace", { name: "Hermes", path: "~/.hermes/skills", disabledPath: null });
+    await routedInvoke("toggle_project_skill", { ...skill, enabled: false });
+    await routedInvoke("delete_project_skill", skill);
+    await routedInvoke("update_project_skill_to_center", skill);
+    await routedInvoke("export_skill_to_project", { skillId: "s1", projectId: "p1", agents: ["codex", "cursor"] });
+    await routedInvoke("export_skill_to_project", { skillId: "s1", projectId: "p1", agents: null });
+    expect(invoke.mock.calls.map(([, payload]) => payload.commands[0])).toEqual([
+      ["projects", "add-linked", "~/.hermes/skills", "--name", "Hermes"],
+      ["projects", "disable", "p1", "team/db", "--agent", "claude_code"],
+      ["projects", "delete-skill", "p1", "team/db", "--agent", "claude_code", "--yes"],
+      ["projects", "import", "p1", "team/db", "--agent", "claude_code"],
+      ["projects", "export", "p1", "s1", "--agent", "codex", "--agent", "cursor"],
+      ["projects", "export", "p1", "s1"],
+    ]);
+  });
+
+  it("treats a remote CLI without the projects group as having no workspaces", async () => {
+    const error = { kind: "invalid_input", message: "error: unrecognized subcommand 'projects'" };
+    answerRemote(() => ({ ok: false, error }));
+    await expect(routedInvoke("get_projects")).resolves.toEqual([]);
+    await expect(routedInvoke("add_project", { path: "/srv/app" })).rejects.toMatchObject({
+      code: REMOTE_UNSUPPORTED,
+      message: "remote.projectsNeedNewerCli",
+    });
+  });
+
   it("carries the last check result into later skill lists", async () => {
     answerRemote((args) =>
       args[1] === "check"

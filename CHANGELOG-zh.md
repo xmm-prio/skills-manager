@@ -5,6 +5,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.44.0] - 2026-11-03
+
+### 发布概览
+- 远程环境支持项目工作区与关联工作区；远端 CLI 改为在本机下载后通过 SSH 上传，远端无需访问 GitHub，安装更快。
+
+### 用户可见更新
+- **远程环境支持项目工作区** — 远程模式下侧边栏显示远端主机上的项目工作区和关联工作区，功能与本机一致：添加、扫描、排序、移除，查看项目 Skills 与中央库的同步状态，导入、导出、双向更新、启用/禁用和删除。添加时直接填写远端路径（支持 `~`）。远端 CLI 低于 1.44.0 时会提示升级。
+- **远程安装 CLI 更快更稳** — 之前由远端自己用 curl 从 GitHub 下载，而非交互式 ssh 不会加载登录 shell 里的代理变量，下载经常很慢甚至超时。现在由本机按「设置 → 网络代理」下载与应用版本一致的 CLI（已下载的版本会缓存），再通过 SSH 上传到远端，校验文件大小并运行 `--version` 后才替换；安装和安装后的检测合并为一次 SSH 会话。下载设置了连接和总超时，失败时会提示检查代理设置。
+
+### 开发者与治理更新
+- `projects.rs` 的 Tauri 命令逻辑抽为 `*_internal(store, …)` 公共函数，CLI 新增 `projects` 命令组（`list`、`add`、`add-linked`、`remove`、`reorder`、`scan`、`agents`、`skills`、`show-skill`、`import`、`export`、`pull`、`enable`、`disable`、`delete-skill`），远程白名单加入 `projects`。
+
 ## [1.43.4] - 2026-11-03
 
 ### 发布概览

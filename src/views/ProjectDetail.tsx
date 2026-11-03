@@ -133,7 +133,7 @@ export function ProjectDetail() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { label: revealLabel, reveal: revealProjectFolder } = useRevealProjectFolder();
-  const { projects, presets, managedSkills, refreshManagedSkills, refreshPresets, refreshProjects } = useApp();
+  const { projects, presets, managedSkills, refreshManagedSkills, refreshPresets, refreshProjects, isRemote } = useApp();
   const [skills, setSkills] = useState<ProjectSkill[]>([]);
   const [projectAgentTargets, setProjectAgentTargets] = useState<ProjectAgentTarget[]>([]);
   const [loading, setLoading] = useState(true);
@@ -969,15 +969,20 @@ export function ProjectDetail() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-[1_1_260px]">
             <h1 className="app-page-title flex items-center gap-2.5">
-              <button
-                type="button"
-                aria-label={revealLabel}
-                title={revealLabel}
-                onClick={() => void revealProjectFolder(project.id)}
-                className="flex cursor-pointer items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-border"
-              >
+              {/* The folder lives on the remote host, out of reach of this file manager. */}
+              {isRemote ? (
                 <FolderOpen className="h-5 w-5 text-accent" />
-              </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={revealLabel}
+                  title={revealLabel}
+                  onClick={() => void revealProjectFolder(project.id)}
+                  className="flex cursor-pointer items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-border"
+                >
+                  <FolderOpen className="h-5 w-5 text-accent" />
+                </button>
+              )}
               {project.name}
               <span className="app-badge">{groupedSkills.length}</span>
             </h1>

@@ -164,7 +164,7 @@ If your agents run on a remote Linux server (for example through VS Code Remote-
 - One of two login methods:
   - **Key / ssh-agent**: an OpenSSH client on this computer (built into Windows 10/11) and key-based login to the host. The system `ssh` runs in `BatchMode`, so there is no password prompt. Connect to a new host once with `ssh` in a terminal to trust its host key.
   - **Password**: uses the app's built-in SSH client instead of the system `ssh`. A user is required, and the host must be a real host name or IP (`~/.ssh/config` aliases are not read). The password is kept in the system keychain (Windows Credential Manager, macOS Keychain or Secret Service), never in the app database. A new host's key is trusted on first connect and added to `~/.ssh/known_hosts`; if it changes later, the connection is refused.
-- `skills-manager-cli` on the host. The app can install it in one click: the host downloads the file matching this app's version from the [xmm-prio/skills-manager releases](https://github.com/xmm-prio/skills-manager/releases) with `curl` (or `wget`) into `~/.skills-manager/bin/`, without root. To install by hand, use `https://github.com/xmm-prio/skills-manager/releases/download/v<version>/skills-manager-cli-Linux-x64` (`Linux-arm64` for arm64). The host therefore needs access to GitHub.
+- `skills-manager-cli` on the host. The app can install it in one click: this computer downloads the file matching the app's version from the [xmm-prio/skills-manager releases](https://github.com/xmm-prio/skills-manager/releases) (through **Settings → Network proxy**, once per version) and uploads it over SSH into `~/.skills-manager/bin/`. No root is needed, and the host needs no GitHub access. To install by hand, use `https://github.com/xmm-prio/skills-manager/releases/download/v<version>/skills-manager-cli-Linux-x64` (`Linux-arm64` for arm64).
 - The release Linux CLI needs glibc 2.35 or newer (2.39 for arm64), e.g. Ubuntu 22.04+, Debian 12+, RHEL 9+. **Test connection** checks the glibc version.
 
 ### Usage
@@ -178,7 +178,8 @@ Without a configured path, the remote CLI is looked up in `~/.skills-manager/bin
 ### What works remotely
 
 - Supported: library list and details, delete, tags, per-agent deploy and undeploy, update check and update, install from a Git URL or the skills.sh marketplace, enabling and disabling agents, and creating, editing, deleting, filling and applying presets.
-- Not yet supported (hidden or reported as unavailable): project workspaces, backup and sync, scanning and importing local folders, zip install, the Git multi-skill preview, and upstream diffs. In a remote session the Global Workspace shows managed deployments only.
+- Project and linked workspaces: the same as on this computer (add, scan, reorder, remove, compare project skills with the library, import, export, update in either direction, enable/disable, delete). Paths are folders on the remote host and may start with `~`; folder pickers and "show in file manager" are unavailable remotely. This needs remote CLI 1.44.0 or later; upgrade older ones in Manage environments.
+- Not yet supported (hidden or reported as unavailable): backup and sync, scanning and importing local folders, zip install, the Git multi-skill preview, and upstream diffs. In a remote session the Global Workspace shows managed deployments only.
 - A Git URL is installed directly. For a repository with several skills, enter the URL of one skill's folder (`…/tree/<branch>/<path>`).
 - Apart from the agent switches, Settings (theme, language, local library path, …) still configures the app on this computer.
 

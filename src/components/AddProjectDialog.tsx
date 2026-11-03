@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
 import { cn } from "../utils";
 import * as api from "../lib/tauri";
+import { useApp } from "../context/AppContext";
+import { formatEnvAddress } from "../lib/remoteApi";
 
 interface Props {
   open: boolean;
@@ -13,7 +15,10 @@ interface Props {
 
 export function AddProjectDialog({ open, onClose, onAdded }: Props) {
   const { t } = useTranslation();
+  // Folder pickers browse this computer, so a remote session types paths.
+  const { isRemote, activeEnv } = useApp();
   const [tab, setTab] = useState<"manual" | "scan" | "linked">("manual");
+  const [manualPath, setManualPath] = useState("");
   const [scanRoot, setScanRoot] = useState("");
   const [scanning, setScanning] = useState(false);
   const [scanResults, setScanResults] = useState<string[]>([]);
@@ -26,6 +31,7 @@ export function AddProjectDialog({ open, onClose, onAdded }: Props) {
   useEffect(() => {
     if (!open) return;
     setTab("manual");
+    setManualPath("");
     setScanRoot("");
     setScanning(false);
     setScanResults([]);
@@ -38,12 +44,10 @@ export function AddProjectDialog({ open, onClose, onAdded }: Props) {
 
   if (!open) return null;
 
-  const handleSelectFolder = async () => {
-    const dir = await dialogOpen({ directory: true, multiple: false });
-    if (!dir) return;
+  const addProjectAt = async (path: string) => {
     setAdding(true);
     try {
-      await api.addProject(dir as string);
+      await api.addProject(path);
       await onAdded();
       onClose();
     } catch {
@@ -51,6 +55,11 @@ export function AddProjectDialog({ open, onClose, onAdded }: Props) {
     } finally {
       setAdding(false);
     }
+  };
+
+  const handleSelectFolder = async () => {
+    const dir = await dialogOpen({ directory: true, multiple: false });
+    if (dir) await addProjectAt(dir as string);
   };
 
   const handleScan = async () => {
@@ -158,20 +167,47 @@ export function AddProjectDialog({ open, onClose, onAdded }: Props) {
           ))}
         </div>
 
+        {isRemote && activeEnv && (
+          <p className="mb-3 text-[12px] leading-5 text-muted">
+            {t("project.remotePathHint", { host: formatEnvAddress(activeEnv) })}
+          </p>
+        )}
+
         {tab === "manual" ? (
-          <div className="space-y-3">
-            <p className="text-[13px] text-tertiary">
-              {t("project.addManual")}
-            </p>
-            <button
-              onClick={handleSelectFolder}
-              disabled={adding}
-              className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg border border-dashed border-border-subtle hover:border-border bg-background text-[13px] text-tertiary hover:text-secondary transition-all outline-none"
-            >
-              <FolderOpen className="w-4 h-4 text-muted" />
-              {adding ? t("common.loading") : t("project.addManual")}
-            </button>
-          </div>
+          isRemote ? (
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={manualPath}
+                onChange={(e) => setManualPath(e.target.value)}
+                placeholder={t("project.remoteProjectPathPlaceholder")}
+                className={inputClass}
+                onKeyDown={(e) => e.key === "Enter" && manualPath.trim() && addProjectAt(manualPath.trim())}
+              />
+              <button
+                onClick={() => addProjectAt(manualPath.trim())}
+                disabled={adding || !manualPath.trim()}
+                className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg border border-dashed border-border-subtle hover:border-border bg-background text-[13px] text-tertiary hover:text-secondary transition-all outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <FolderOpen className="w-4 h-4 text-muted" />
+                {adding ? t("common.loading") : t("project.addPath")}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-[13px] text-tertiary">
+                {t("project.addManual")}
+              </p>
+              <button
+                onClick={handleSelectFolder}
+                disabled={adding}
+                className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg border border-dashed border-border-subtle hover:border-border bg-background text-[13px] text-tertiary hover:text-secondary transition-all outline-none"
+              >
+                <FolderOpen className="w-4 h-4 text-muted" />
+                {adding ? t("common.loading") : t("project.addManual")}
+              </button>
+            </div>
+          )
         ) : tab === "scan" ? (
           <div className="space-y-3">
             <div className="flex gap-2">
@@ -183,13 +219,15 @@ export function AddProjectDialog({ open, onClose, onAdded }: Props) {
                 className={cn(inputClass, "flex-1")}
                 onKeyDown={(e) => e.key === "Enter" && handleScan()}
               />
-              <button
-                onClick={handleSelectBrowse}
-                className="px-2.5 rounded-lg border border-border-subtle bg-background text-muted hover:text-secondary hover:border-border transition-all outline-none"
-                title={t("project.scanDir")}
-              >
-                <FolderOpen className="w-4 h-4" />
-              </button>
+              {!isRemote && (
+                <button
+                  onClick={handleSelectBrowse}
+                  className="px-2.5 rounded-lg border border-border-subtle bg-background text-muted hover:text-secondary hover:border-border transition-all outline-none"
+                  title={t("project.scanDir")}
+                >
+                  <FolderOpen className="w-4 h-4" />
+                </button>
+              )}
               <button
                 onClick={handleScan}
                 disabled={!scanRoot.trim() || scanning}
@@ -290,16 +328,18 @@ export function AddProjectDialog({ open, onClose, onAdded }: Props) {
                 placeholder={t("project.linkedPathPlaceholder")}
                 className={cn(inputClass, "flex-1")}
               />
-              <button
-                onClick={async () => {
-                  const dir = await dialogOpen({ directory: true, multiple: false });
-                  if (dir) setLinkedPath(dir as string);
-                }}
-                className="px-2.5 rounded-lg border border-border-subtle bg-background text-muted hover:text-secondary hover:border-border transition-all outline-none"
-                title={t("project.selectSkillsDir")}
-              >
-                <FolderOpen className="w-4 h-4" />
-              </button>
+              {!isRemote && (
+                <button
+                  onClick={async () => {
+                    const dir = await dialogOpen({ directory: true, multiple: false });
+                    if (dir) setLinkedPath(dir as string);
+                  }}
+                  className="px-2.5 rounded-lg border border-border-subtle bg-background text-muted hover:text-secondary hover:border-border transition-all outline-none"
+                  title={t("project.selectSkillsDir")}
+                >
+                  <FolderOpen className="w-4 h-4" />
+                </button>
+              )}
             </div>
             <p className="text-[12px] leading-5 text-muted">
               {t("project.linkedDisabledPathHint")}

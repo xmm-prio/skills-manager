@@ -3,7 +3,9 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use anyhow::{Context, anyhow, bail};
-use app_lib::commands::{presets as preset_cmd, skills as cmd, tools as tool_cmd};
+use app_lib::commands::{
+    presets as preset_cmd, projects as project_cmd, skills as cmd, tools as tool_cmd,
+};
 use app_lib::core::{
     app_state, audit_log::AuditDraft, central_repo, error::AppError, git_backup, git_fetcher,
     installer, merge, repo_lock::RepoLock, scenario_service, skill_metadata,
@@ -33,6 +35,9 @@ enum Commands {
     Skills(SkillsArgs),
     #[command(alias = "scenarios")]
     Presets(PresetArgs),
+    /// Project workspaces and linked agent folders
+    #[command(alias = "workspaces")]
+    Projects(ProjectsArgs),
     Git(GitArgs),
 }
 
@@ -356,6 +361,95 @@ enum PresetCommand {
         preset: String,
         #[arg(required = true)]
         skills: Vec<String>,
+    },
+}
+
+#[derive(Args, Debug)]
+struct ProjectsArgs {
+    #[command(subcommand)]
+    command: ProjectsCommand,
+}
+
+/// `project` accepts a workspace id or its unique name; `skill` under a
+/// workspace is the skill's folder path relative to the agent skills root.
+#[derive(Subcommand, Debug)]
+enum ProjectsCommand {
+    /// List workspaces with skill counts and sync health
+    List,
+    /// Register a project folder (creates `.claude/skills` when missing)
+    Add { path: String },
+    /// Register an agent skills folder as a linked workspace
+    AddLinked {
+        path: String,
+        #[arg(long)]
+        name: String,
+        /// Folder that holds this workspace's disabled skills
+        #[arg(long)]
+        disabled_path: Option<String>,
+    },
+    /// Forget a workspace; its files stay where they are
+    Remove { project: String },
+    /// Set the workspace order
+    Reorder {
+        #[arg(required = true)]
+        projects: Vec<String>,
+    },
+    /// Find project folders below a directory
+    Scan { root: String },
+    /// Agents a workspace can hold skills for
+    Agents { project: String },
+    /// Skills in a workspace, compared with the library
+    Skills { project: String },
+    /// Print a workspace skill's document
+    ShowSkill {
+        project: String,
+        skill: String,
+        #[arg(long)]
+        agent: String,
+    },
+    /// Copy a workspace skill into the library, or refresh the library copy
+    Import {
+        project: String,
+        skill: String,
+        #[arg(long)]
+        agent: String,
+    },
+    /// Copy a library skill into a workspace
+    Export {
+        project: String,
+        /// Library skill id, name or folder name
+        skill: String,
+        /// Target agents (default: every enabled, installed agent)
+        #[arg(long = "agent")]
+        agents: Vec<String>,
+    },
+    /// Replace the workspace copy with the library version
+    Pull {
+        project: String,
+        skill: String,
+        #[arg(long)]
+        agent: String,
+    },
+    Enable {
+        project: String,
+        skill: String,
+        #[arg(long)]
+        agent: String,
+    },
+    Disable {
+        project: String,
+        skill: String,
+        #[arg(long)]
+        agent: String,
+    },
+    /// Delete a skill folder from a workspace
+    DeleteSkill {
+        project: String,
+        skill: String,
+        #[arg(long)]
+        agent: String,
+        #[arg(long, short)]
+        yes: bool,
     },
 }
 
@@ -738,6 +832,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Commands::Tools(args) => run_tools(args, &store, cli.json),
         Commands::Skills(args) => run_skills(args, &store, cli.json),
         Commands::Presets(args) => run_presets(args, &store, cli.json),
+        Commands::Projects(args) => run_projects(args, &store, cli.json),
         Commands::Git(args) => run_git(args, &store, cli.skills_root.is_some(), cli.json),
     }
 }
@@ -3037,6 +3132,184 @@ fn resolve_scenario(
     }
 }
 
+// ── projects ──────────────────────────────────────────────────────────────
+
+fn run_projects(args: ProjectsArgs, store: &SkillStore, json: bool) -> anyhow::Result<()> {
+    match args.command {
+        ProjectsCommand::List => {
+            print_json(&project_cmd::get_projects_internal(store).map_err(map_app_err)?, json)
+        }
+        ProjectsCommand::Add { path } => {
+            let dto = project_cmd::add_project_internal(store, absolute_path(&path)?)
+                .map_err(map_app_err)?;
+            print_json(&dto, json);
+        }
+        ProjectsCommand::AddLinked {
+            path,
+            name,
+            disabled_path,
+        } => {
+            let disabled_path = disabled_path
+                .filter(|p| !p.trim().is_empty())
+                .map(|p| absolute_path(&p))
+                .transpose()?;
+            let dto = project_cmd::add_linked_workspace_internal(
+                store,
+                name,
+                absolute_path(&path)?,
+                disabled_path,
+            )
+            .map_err(map_app_err)?;
+            print_json(&dto, json);
+        }
+        ProjectsCommand::Remove { project } => {
+            let id = resolve_project_id(store, &project)?;
+            project_cmd::remove_project_internal(store, &id).map_err(map_app_err)?;
+            print_json(&(), json);
+        }
+        ProjectsCommand::Reorder { projects } => {
+            let ids = projects
+                .iter()
+                .map(|reference| resolve_project_id(store, reference))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            project_cmd::reorder_projects_internal(store, &ids).map_err(map_app_err)?;
+            print_json(&(), json);
+        }
+        ProjectsCommand::Scan { root } => {
+            let root = absolute_path(&root)?;
+            print_json(
+                &project_cmd::scan_projects_internal(store, &root).map_err(map_app_err)?,
+                json,
+            );
+        }
+        ProjectsCommand::Agents { project } => {
+            let id = resolve_project_id(store, &project)?;
+            print_json(
+                &project_cmd::get_project_agent_targets_internal(store, &id)
+                    .map_err(map_app_err)?,
+                json,
+            );
+        }
+        ProjectsCommand::Skills { project } => {
+            let id = resolve_project_id(store, &project)?;
+            print_json(
+                &project_cmd::get_project_skills_internal(store, &id).map_err(map_app_err)?,
+                json,
+            );
+        }
+        ProjectsCommand::ShowSkill {
+            project,
+            skill,
+            agent,
+        } => {
+            let id = resolve_project_id(store, &project)?;
+            let doc = project_cmd::get_project_skill_document_internal(store, &id, skill, &agent)
+                .map_err(map_app_err)?;
+            print_json(&doc, json);
+        }
+        ProjectsCommand::Import {
+            project,
+            skill,
+            agent,
+        } => {
+            let id = resolve_project_id(store, &project)?;
+            project_cmd::import_project_skill_to_center_internal(store, &id, &skill, &agent)
+                .map_err(map_app_err)?;
+            print_json(&(), json);
+        }
+        ProjectsCommand::Export {
+            project,
+            skill,
+            agents,
+        } => {
+            let id = resolve_project_id(store, &project)?;
+            let skill = resolve_skill(store, &skill)?;
+            let agents = (!agents.is_empty()).then_some(agents);
+            project_cmd::export_skill_to_project_internal(store, &skill.id, &id, agents)
+                .map_err(map_app_err)?;
+            print_json(&(), json);
+        }
+        ProjectsCommand::Pull {
+            project,
+            skill,
+            agent,
+        } => {
+            let id = resolve_project_id(store, &project)?;
+            project_cmd::update_project_skill_from_center_internal(store, &id, &skill, &agent)
+                .map_err(map_app_err)?;
+            print_json(&(), json);
+        }
+        ProjectsCommand::Enable {
+            project,
+            skill,
+            agent,
+        } => {
+            set_workspace_skill_enabled(store, &project, &skill, &agent, true)?;
+            print_json(&(), json);
+        }
+        ProjectsCommand::Disable {
+            project,
+            skill,
+            agent,
+        } => {
+            set_workspace_skill_enabled(store, &project, &skill, &agent, false)?;
+            print_json(&(), json);
+        }
+        ProjectsCommand::DeleteSkill {
+            project,
+            skill,
+            agent,
+            yes,
+        } => {
+            if !yes {
+                bail!("refusing to delete workspace skill without --yes");
+            }
+            let id = resolve_project_id(store, &project)?;
+            project_cmd::delete_project_skill_internal(store, &id, &skill, &agent)
+                .map_err(map_app_err)?;
+            print_json(&(), json);
+        }
+    }
+    Ok(())
+}
+
+fn set_workspace_skill_enabled(
+    store: &SkillStore,
+    project: &str,
+    skill: &str,
+    agent: &str,
+    enabled: bool,
+) -> anyhow::Result<()> {
+    let id = resolve_project_id(store, project)?;
+    project_cmd::toggle_project_skill_internal(store, &id, skill, agent, enabled)
+        .map_err(map_app_err)
+}
+
+fn resolve_project_id(store: &SkillStore, reference: &str) -> anyhow::Result<String> {
+    let projects = store.get_all_projects()?;
+    if let Some(project) = projects.iter().find(|p| p.id == reference) {
+        return Ok(project.id.clone());
+    }
+    let matches: Vec<_> = projects.iter().filter(|p| p.name == reference).collect();
+    match matches.as_slice() {
+        [project] => Ok(project.id.clone()),
+        [] => Err(anyhow!("workspace not found: {reference}")),
+        _ => Err(anyhow!("workspace reference is ambiguous: {reference}")),
+    }
+}
+
+/// Workspaces are stored by absolute path, so `~` and relative input are
+/// resolved against the shell running the CLI.
+fn absolute_path(raw: &str) -> anyhow::Result<String> {
+    let path = expand_path(raw.trim())?;
+    let path = if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    Ok(path.to_string_lossy().to_string())
+}
+
 // ── git ───────────────────────────────────────────────────────────────────
 
 fn run_git(
@@ -3723,5 +3996,61 @@ mod tests {
             .unwrap()
             .remove(0);
         assert!(report.skipped);
+    }
+
+    #[test]
+    fn projects_commands_manage_a_workspace_by_name() {
+        let tmp = tempdir().unwrap();
+        let store = SkillStore::new(&tmp.path().join("skills.db")).unwrap();
+        let project = tmp.path().join("web-app");
+        let skill_dir = project.join(".claude/skills/demo");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: demo\ndescription: test skill\n---\n",
+        )
+        .unwrap();
+
+        let run = |args: &[&str]| {
+            let mut argv = vec!["skills-manager-cli", "--json", "projects"];
+            argv.extend_from_slice(args);
+            match Cli::try_parse_from(argv).unwrap().command {
+                Commands::Projects(args) => run_projects(args, &store, true),
+                other => panic!("unexpected command {other:?}"),
+            }
+        };
+
+        run(&["add", project.to_str().unwrap()]).unwrap();
+        let id = resolve_project_id(&store, "web-app").unwrap();
+        let skills = project_cmd::get_project_skills_internal(&store, &id).unwrap();
+        assert_eq!(skills.len(), 1);
+        assert!(skills[0].enabled);
+        let agent = skills[0].agent.clone();
+
+        run(&["disable", "web-app", "demo", "--agent", &agent]).unwrap();
+        assert!(!project.join(".claude/skills/demo").exists());
+        let skills = project_cmd::get_project_skills_internal(&store, &id).unwrap();
+        assert!(!skills[0].enabled);
+
+        run(&["enable", &id, "demo", "--agent", &agent]).unwrap();
+        assert!(project.join(".claude/skills/demo/SKILL.md").exists());
+
+        let refused = run(&["delete-skill", "web-app", "demo", "--agent", &agent]);
+        assert!(refused.unwrap_err().to_string().contains("--yes"));
+        assert!(project.join(".claude/skills/demo").exists());
+
+        run(&["delete-skill", "web-app", "demo", "--agent", &agent, "--yes"]).unwrap();
+        assert!(!project.join(".claude/skills/demo").exists());
+
+        run(&["remove", "web-app"]).unwrap();
+        assert!(store.get_all_projects().unwrap().is_empty());
+        assert!(run(&["skills", "web-app"]).is_err());
+    }
+
+    #[test]
+    fn projects_paths_are_made_absolute() {
+        let path = absolute_path("relative/dir").unwrap();
+        assert!(Path::new(&path).is_absolute());
+        assert!(path.ends_with("dir"));
     }
 }

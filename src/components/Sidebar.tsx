@@ -591,8 +591,6 @@ export function Sidebar() {
             </>
           )}
 
-          {/* Project workspaces are local folders, so a remote session has none. */}
-          {!isRemote && (<>
           {/* Divider */}
           <div className="mx-0.5 mt-3.5 mb-2.5 border-t border-border-subtle" />
 
@@ -718,7 +716,6 @@ export function Sidebar() {
               </button>
             </>
           )}
-          </>)}
 
         </div>
 
