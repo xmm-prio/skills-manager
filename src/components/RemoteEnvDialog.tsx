@@ -44,6 +44,7 @@ interface FormState {
   user: string;
   identityFile: string;
   cliPath: string;
+  proxyUrl: string;
   auth: RemoteAuthMethod;
   password: string;
   /** The saved environment already has a password in the keychain. */
@@ -58,6 +59,7 @@ const EMPTY_FORM: FormState = {
   user: "",
   identityFile: "",
   cliPath: "",
+  proxyUrl: "",
   auth: "key",
   password: "",
   hasSavedPassword: false,
@@ -73,6 +75,7 @@ function toForm(env: RemoteEnv): FormState {
     user: env.user ?? "",
     identityFile: env.identity_file ?? "",
     cliPath: env.cli_path ?? "",
+    proxyUrl: env.proxy_url ?? "",
     auth,
     password: "",
     hasSavedPassword: auth === "password",
@@ -90,6 +93,7 @@ function toEnv(form: FormState): RemoteEnv {
     user: form.user.trim() || null,
     identity_file: isPassword ? null : form.identityFile.trim() || null,
     cli_path: form.cliPath.trim() || null,
+    proxy_url: form.proxyUrl.trim() || null,
     auth: form.auth,
     password: isPassword && form.password !== "" ? form.password : null,
   };
@@ -369,6 +373,16 @@ export function RemoteEnvDialog({ open, onClose }: Props) {
                     className={inputClass}
                   />
                   <p className="mt-1 text-[12px] text-muted">{t("remote.cliPathHint")}</p>
+                </div>
+                <div className="col-span-2">
+                  <label className={labelClass}>{t("remote.proxyUrl")}</label>
+                  <input
+                    value={form.proxyUrl}
+                    onChange={(e) => update({ proxyUrl: e.target.value })}
+                    placeholder="http://127.0.0.1:7890"
+                    className={inputClass}
+                  />
+                  <p className="mt-1 text-[12px] text-muted">{t("remote.proxyUrlHint")}</p>
                 </div>
               </div>
 

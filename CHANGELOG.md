@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.44.1] - 2026-11-03
+
+### Release Overview
+- Remote environments get their own **Remote proxy**, so Git and skills.sh installs and update checks on the host no longer time out for lack of a proxy.
+
+### User-facing
+- **Remote proxy** — Manage environments has a new **Remote proxy** field (http, https, socks5, socks5h). A non-interactive SSH session does not load the proxy variables a login shell sets, so on hosts that need a proxy to reach GitHub, remote Git installs, skills.sh installs and update checks were slow or timed out. The app now exports this proxy before every remote CLI call.
+- The remote environment list (proxy included) is now stored encrypted in the local database; existing plaintext records are encrypted on first read.
+
+### Developer & Governance
+- The CLI now prefers the `SKILLS_MANAGER_PROXY` environment variable over the saved `proxy_url` setting, so paths such as libgit2 that ignore the standard proxy variables use the proxy too.
+
 ## [1.44.0] - 2026-11-03
 
 ### Release Overview

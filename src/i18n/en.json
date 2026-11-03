@@ -1178,6 +1178,8 @@
     "passwordHint": "The password is stored in the system keychain. Use a real host name or IP (~/.ssh/config aliases are not read); a new host's key is trusted on first connect and added to ~/.ssh/known_hosts.",
     "cliPath": "Remote CLI path",
     "cliPathHint": "Leave empty to look in ~/.skills-manager/bin, ~/.local/bin, ~/.cargo/bin and PATH.",
+    "proxyUrl": "Remote proxy (optional)",
+    "proxyUrlHint": "Used by the remote host for Git and skills.sh installs and update checks. An ssh session does not load the proxy set in the login shell, so enter it here; http, https, socks5 and socks5h work. Leave empty to connect directly.",
     "test": "Test connection",
     "installCli": "Install CLI",
     "upgradeCli": "Upgrade CLI",

@@ -1164,6 +1164,8 @@
     "passwordHint": "La contraseña se guarda en el llavero del sistema. Usa un nombre de host o IP reales (no se leen los alias de ~/.ssh/config); la clave de un host nuevo se acepta en la primera conexión y se añade a ~/.ssh/known_hosts.",
     "cliPath": "Ruta del CLI remoto",
     "cliPathHint": "Déjalo vacío para buscar en ~/.skills-manager/bin, ~/.local/bin, ~/.cargo/bin y PATH.",
+    "proxyUrl": "Proxy remoto (opcional)",
+    "proxyUrlHint": "Lo usa el host remoto para instalar desde Git y skills.sh y para buscar actualizaciones. Una sesión ssh no carga el proxy del shell de inicio de sesión, así que indícalo aquí; admite http, https, socks5 y socks5h. Déjalo vacío para conectar directamente.",
     "test": "Probar conexión",
     "installCli": "Instalar CLI",
     "upgradeCli": "Actualizar CLI",

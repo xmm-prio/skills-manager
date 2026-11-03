@@ -1170,6 +1170,8 @@
     "passwordHint": "密碼儲存在系統鑰匙圈中。請填寫實際主機名稱或 IP（不讀取 ~/.ssh/config 別名）；首次連線新主機時會自動信任其主機金鑰並寫入 ~/.ssh/known_hosts。",
     "cliPath": "遠端 CLI 路徑",
     "cliPathHint": "留空時依序尋找 ~/.skills-manager/bin、~/.local/bin、~/.cargo/bin 和 PATH。",
+    "proxyUrl": "遠端代理（選填）",
+    "proxyUrlHint": "遠端主機執行 Git / skills.sh 安裝和檢查更新時使用。SSH 工作階段不會載入登入 shell 裡設定的代理，請在這裡填寫；支援 http、https、socks5、socks5h。留空則直連。",
     "test": "測試連線",
     "installCli": "安裝 CLI",
     "upgradeCli": "升級 CLI",

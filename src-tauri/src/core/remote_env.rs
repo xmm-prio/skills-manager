@@ -78,6 +78,11 @@ pub struct RemoteEnv {
     pub cli_path: Option<String>,
     #[serde(default)]
     pub auth: AuthMethod,
+    /// Proxy for the remote CLI's own network access (Git and skills.sh
+    /// installs, update checks). A non-interactive ssh session does not load
+    /// the proxy variables a login shell sets, so it is passed explicitly.
+    #[serde(default)]
+    pub proxy_url: Option<String>,
     /// Only ever travels from the UI to the backend: never written to the
     /// settings table and never sent back. Empty on save keeps the stored one.
     #[serde(default, skip_serializing)]
@@ -95,6 +100,7 @@ impl std::fmt::Debug for RemoteEnv {
             .field("identity_file", &self.identity_file)
             .field("cli_path", &self.cli_path)
             .field("auth", &self.auth)
+            .field("proxy_url", &self.proxy_url.as_ref().map(|_| "<redacted>"))
             .field("password", &self.password.as_ref().map(|_| "<redacted>"))
             .finish()
     }
@@ -383,6 +389,10 @@ pub fn normalize_env(env: RemoteEnv) -> Result<RemoteEnv, AppError> {
     if env.auth == AuthMethod::Password && user.is_none() {
         return Err(AppError::invalid_input("User is required for password login"));
     }
+    let proxy_url = trimmed(env.proxy_url);
+    if let Some(proxy) = &proxy_url {
+        validate_proxy_url(proxy)?;
+    }
 
     // Passwords are kept verbatim: surrounding spaces may be part of them.
     let password = match env.auth {
@@ -399,8 +409,26 @@ pub fn normalize_env(env: RemoteEnv) -> Result<RemoteEnv, AppError> {
         identity_file,
         cli_path,
         auth: env.auth,
+        proxy_url,
         password,
     })
+}
+
+fn validate_proxy_url(proxy: &str) -> Result<(), AppError> {
+    let invalid = || {
+        AppError::invalid_input(format!(
+            "Invalid proxy URL: {proxy} (expected e.g. http://127.0.0.1:7890 or socks5://host:1080)"
+        ))
+    };
+    if proxy.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(invalid());
+    }
+    let url = reqwest::Url::parse(proxy).map_err(|_| invalid())?;
+    let scheme_ok = matches!(url.scheme(), "http" | "https" | "socks5" | "socks5h");
+    if !scheme_ok || url.host_str().is_none() {
+        return Err(invalid());
+    }
+    Ok(())
 }
 
 // ── Shell script building ──────────────────────────────────────────────────
@@ -437,10 +465,38 @@ fn resolve_cli_script(cli_path: Option<&str>) -> String {
     }
 }
 
+/// Exports the proxy for every tool the CLI may reach the network through:
+/// `SKILLS_MANAGER_PROXY` for the CLI itself (it also covers libgit2, which
+/// ignores the standard variables), the rest for git and HTTP clients.
+fn proxy_exports(proxy_url: Option<&str>) -> String {
+    let Some(proxy) = proxy_url else {
+        return String::new();
+    };
+    let value = shell_quote(proxy);
+    let assignments: Vec<String> = [
+        "SKILLS_MANAGER_PROXY",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "ALL_PROXY",
+        "https_proxy",
+        "http_proxy",
+        "all_proxy",
+    ]
+    .iter()
+    .map(|name| format!("{name}={value}"))
+    .collect();
+    format!("export {}\n", assignments.join(" "))
+}
+
 /// Runs each CLI invocation in turn, merging its stdout and stderr and
 /// closing each with an exit-code marker line.
-pub fn build_exec_script(cli_path: Option<&str>, commands: &[Vec<String>]) -> String {
-    let mut script = resolve_cli_script(cli_path);
+pub fn build_exec_script(
+    cli_path: Option<&str>,
+    proxy_url: Option<&str>,
+    commands: &[Vec<String>],
+) -> String {
+    let mut script = proxy_exports(proxy_url);
+    script.push_str(&resolve_cli_script(cli_path));
     script.push_str(&format!(
         "if [ -z \"$CLI\" ]; then echo {CLI_MISSING_MARKER}; exit 127; fi\n"
     ));
@@ -1246,7 +1302,7 @@ pub fn exec(env: &RemoteEnv, commands: &[Vec<String>]) -> Result<Vec<Value>, App
         }
     }
 
-    let script = build_exec_script(env.cli_path.as_deref(), commands);
+    let script = build_exec_script(env.cli_path.as_deref(), env.proxy_url.as_deref(), commands);
     let output = run_ssh(env, &script)?;
     if output.stdout.lines().any(|line| line.trim() == CLI_MISSING_MARKER) {
         return Err(cli_missing_error());
@@ -1423,6 +1479,7 @@ mod tests {
             identity_file: Some("~/.ssh/id_ed25519".into()),
             cli_path: None,
             auth: AuthMethod::Key,
+            proxy_url: None,
             password: None,
         }
     }
@@ -1584,11 +1641,43 @@ mod tests {
     fn exec_script_quotes_every_argument() {
         let script = build_exec_script(
             None,
+            None,
             &[vec!["skills".into(), "install".into(), "it's; rm -rf ~".into()]],
         );
         assert!(script.contains("\"$CLI\" --json 'skills' 'install' 'it'\\''s; rm -rf ~'"));
         assert!(script.contains(CLI_MISSING_MARKER));
         assert_eq!(script.matches(EXIT_MARKER).count(), 1);
+        assert!(!script.contains("PROXY"));
+    }
+
+    #[test]
+    fn exec_script_exports_the_environment_proxy_before_the_cli_runs() {
+        let script = build_exec_script(
+            None,
+            Some("http://u:p'w@10.0.0.1:3128"),
+            &[vec!["skills".into(), "check".into()]],
+        );
+        let export_line = script.lines().next().unwrap();
+        assert!(export_line.starts_with("export "));
+        for name in ["SKILLS_MANAGER_PROXY", "HTTPS_PROXY", "http_proxy", "all_proxy"] {
+            assert!(export_line.contains(&format!("{name}='http://u:p'\\''w@10.0.0.1:3128'")));
+        }
+        assert!(script.find("export ").unwrap() < script.find("\"$CLI\" --json").unwrap());
+    }
+
+    #[test]
+    fn proxy_urls_are_validated_and_trimmed() {
+        let with_proxy = |proxy: &str| RemoteEnv {
+            proxy_url: Some(proxy.into()),
+            ..env()
+        };
+        let saved = normalize_env(with_proxy("  socks5h://proxy.lan:1080 ")).unwrap();
+        assert_eq!(saved.proxy_url.as_deref(), Some("socks5h://proxy.lan:1080"));
+        assert_eq!(normalize_env(with_proxy("   ")).unwrap().proxy_url, None);
+        for bad in ["127.0.0.1:7890", "ftp://proxy:21", "http://", "http://a b:1"] {
+            assert!(normalize_env(with_proxy(bad)).is_err(), "{bad} should be rejected");
+        }
+        assert!(!format!("{:?}", with_proxy("http://u:secret@p:1")).contains("secret"));
     }
 
     #[test]

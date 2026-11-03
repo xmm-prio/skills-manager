@@ -1164,6 +1164,8 @@
     "passwordHint": "비밀번호는 시스템 키체인에 저장됩니다. 실제 호스트 이름이나 IP를 입력하세요(~/.ssh/config 별칭은 읽지 않음). 새 호스트의 키는 처음 연결할 때 신뢰되어 ~/.ssh/known_hosts에 추가됩니다.",
     "cliPath": "원격 CLI 경로",
     "cliPathHint": "비워 두면 ~/.skills-manager/bin, ~/.local/bin, ~/.cargo/bin, PATH 순으로 찾습니다.",
+    "proxyUrl": "원격 프록시 (선택)",
+    "proxyUrlHint": "원격 호스트가 Git·skills.sh 설치와 업데이트 확인에 사용합니다. ssh 세션은 로그인 셸에 설정된 프록시를 불러오지 않으므로 여기에 입력하세요. http, https, socks5, socks5h를 지원합니다. 비워 두면 직접 연결합니다.",
     "test": "연결 테스트",
     "installCli": "CLI 설치",
     "upgradeCli": "CLI 업그레이드",

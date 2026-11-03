@@ -8,7 +8,8 @@ use super::audit_log::{AuditDraft, AuditEntry, MAX_ENTRIES as AUDIT_MAX_ENTRIES}
 use super::crypto;
 
 /// Settings keys whose values are encrypted at rest with AES-256-GCM.
-const SENSITIVE_KEYS: &[&str] = &["proxy_url", "git_backup_remote_url"];
+const SENSITIVE_KEYS: &[&str] = &["proxy_url", "git_backup_remote_url", "remote_envs"];
+const PROXY_ENV_OVERRIDE: &str = "SKILLS_MANAGER_PROXY";
 
 pub struct SkillStore {
     conn: Mutex<Connection>,
@@ -655,11 +656,20 @@ impl SkillStore {
 
     // ── Settings ──
 
+    /// `SKILLS_MANAGER_PROXY` wins over the saved setting: the desktop app
+    /// sets it when it runs a remote host's CLI over ssh, carrying the proxy
+    /// configured for that remote environment.
     pub fn proxy_url(&self) -> Option<String> {
-        self.get_setting("proxy_url")
+        std::env::var(PROXY_ENV_OVERRIDE)
             .ok()
-            .flatten()
+            .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
+            .or_else(|| {
+                self.get_setting("proxy_url")
+                    .ok()
+                    .flatten()
+                    .filter(|s| !s.is_empty())
+            })
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
