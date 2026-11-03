@@ -160,7 +160,7 @@ npx skills add xingkongliang/skills-manager
 - 登录方式二选一：
   - **密钥 / ssh-agent**：本机需要有 OpenSSH 客户端（Windows 10/11 自带），并且能免密登录远端。应用以 `BatchMode` 运行系统 `ssh`，不会弹出密码框。首次连接某台主机前，先在终端里 `ssh` 一次以信任主机指纹。
   - **密码**：使用应用内置的 SSH 客户端，不依赖系统 `ssh`。必须填写用户名，主机要填真实主机名或 IP（不读取 `~/.ssh/config` 的别名）。密码保存在系统钥匙串里（Windows 凭据管理器、macOS 钥匙串或 Secret Service），不会写入应用数据库。首次连接新主机时会自动信任它的主机密钥并写入 `~/.ssh/known_hosts`；之后如果主机密钥变了，连接会被拒绝。
-- 远端需要 `skills-manager-cli`。应用可以一键安装：在远端用 `curl`（或 `wget`）从 GitHub Release 下载与当前应用版本一致的文件到 `~/.skills-manager/bin/`，不需要 root。因此远端要能访问 GitHub。
+- 远端需要 `skills-manager-cli`。应用可以一键安装：在远端用 `curl`（或 `wget`）从 [xmm-prio/skills-manager 的 Release](https://github.com/xmm-prio/skills-manager/releases) 下载与当前应用版本一致的文件到 `~/.skills-manager/bin/`，不需要 root。手动安装时，地址为 `https://github.com/xmm-prio/skills-manager/releases/download/v<版本>/skills-manager-cli-Linux-x64`（arm64 把结尾换成 `Linux-arm64`）。因此远端要能访问 GitHub。
 - 官方 Linux 版 CLI 需要 glibc 2.35 及以上（arm64 版需要 2.39 及以上），例如 Ubuntu 22.04+、Debian 12+、RHEL 9+。「测试连接」会检查 glibc 版本并给出提示。
 
 ### 使用

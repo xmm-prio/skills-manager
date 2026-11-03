@@ -30,7 +30,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// standing in for the system client's ServerAlive checks.
 const SESSION_TIMEOUT_MS: u32 = 10 * 60 * 1000;
 
-const RELEASE_BASE_URL: &str = "https://github.com/xingkongliang/skills-manager/releases";
+const RELEASE_BASE_URL: &str = "https://github.com/xmm-prio/skills-manager/releases";
 const DEFAULT_REMOTE_CLI_PATH: &str = "~/.skills-manager/bin/skills-manager-cli";
 
 const CLI_MISSING_MARKER: &str = "__SM_CLI_MISSING__";

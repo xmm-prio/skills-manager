@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.43.4] - 2026-11-03
+
+### 发布概览
+- 远程环境「安装 / 升级 CLI」改为从 xmm-prio/skills-manager 的 Release 下载，远端能拿到与应用版本一致的 CLI。
+
+### 用户可见更新
+- **远端 CLI 版本与应用一致** — 之前远端只能从上游下载到 1.43.2 的 CLI，「测试连接」会一直提示 CLI 过旧。现在每个版本的 Release 都附带 Linux x64 和 arm64 的 CLI，一键安装会下载与应用相同版本的文件。
+
+### 开发者与治理更新
+- `release-windows.yml` 新增 Linux CLI 构建（x64 在 ubuntu-22.04 上构建，arm64 在 ubuntu-24.04-arm 上构建），并提供「只补传 Linux CLI」的选项。
+
 ## [1.43.3] - 2026-11-02
 
 ### 发布概览

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.43.4] - 2026-11-03
+
+### Release Overview
+- **Install / Upgrade CLI** for remote environments now downloads from the xmm-prio/skills-manager releases, so remote hosts get the CLI matching the app version.
+
+### User-facing
+- **Remote CLI matches the app version** — Remote hosts could previously only get the 1.43.2 CLI from upstream, so **Test connection** kept reporting it as outdated. Each release now ships Linux x64 and arm64 CLIs, and one-click install fetches the same version as the app.
+
+### Developer & Governance
+- `release-windows.yml` now builds the Linux CLIs (x64 on ubuntu-22.04, arm64 on ubuntu-24.04-arm) and can upload them alone to an existing release.
+
 ## [1.43.3] - 2026-11-02
 
 ### Release Overview
