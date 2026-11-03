@@ -7,12 +7,18 @@ on:
         description: "Release tag (defaults to v<package.json version>)"
         required: false
         default: ""
+      linux_cli_only:
+        description: "Only build the Linux CLIs and upload them to an existing release"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
   build:
+    if: ${{ !inputs.linux_cli_only }}
     runs-on: windows-latest
     name: Build & Release (Windows-x64)
     timeout-minutes: 60
@@ -61,7 +67,7 @@ jobs:
             echo "body<<EOF"
             echo "## Skills Manager ${TAG}（Windows）"
             echo ""
-            echo "xmm-prio/skills-manager fork 版本，仅提供 Windows x64 安装包与 CLI。"
+            echo "xmm-prio/skills-manager fork 版本，提供 Windows x64 安装包，以及 Windows / Linux（x64、arm64）CLI。"
             echo ""
             echo "$BODY_ZH"
             echo "EOF"
@@ -100,21 +106,101 @@ jobs:
             --repo "${{ github.repository }}" \
             "$CLI_UPLOAD" --clobber
 
-      - name: Verify updater metadata and publish
-        shell: bash
+  # Remote environments install these on SSH hosts. Each runner's glibc is the
+  # floor the binary needs, mirrored by `required_glibc_for` in remote_env.rs.
+  linux-cli:
+    needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            label: Linux-x64
+          - platform: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            label: Linux-arm64
+    runs-on: ${{ matrix.platform }}
+    name: Build CLI (${{ matrix.label }})
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+          save-if: false
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Build CLI binary
+        run: >-
+          cargo build --release
+          --manifest-path src-tauri/Cargo.toml
+          --bin skills-manager-cli
+          --target ${{ matrix.target }}
+
+      - name: Upload CLI binary to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.meta.outputs.tag }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          VERSION=$(grep -m1 '"version"' package.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+          TAG="${INPUT_TAG:-v${VERSION}}"
+          CLI_UPLOAD="$RUNNER_TEMP/skills-manager-cli-${{ matrix.label }}"
+          cp "src-tauri/target/${{ matrix.target }}/release/skills-manager-cli" "$CLI_UPLOAD"
+          "$CLI_UPLOAD" --version
+          gh release upload "$TAG" --repo "${{ github.repository }}" "$CLI_UPLOAD" --clobber
+
+  publish:
+    needs: [build, linux-cli]
+    if: ${{ !inputs.linux_cli_only }}
+    runs-on: ubuntu-latest
+    name: Verify & publish
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Verify release assets and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r .version package.json)
+          TAG="${INPUT_TAG:-v${VERSION}}"
           DIR="$RUNNER_TEMP/verify"
           mkdir -p "$DIR"
-          gh release download "$TAG" --repo "${{ github.repository }}" \
-            --pattern latest.json --dir "$DIR"
+          gh release download "$TAG" --repo "$REPO" --pattern latest.json --dir "$DIR"
           if ! jq -e '.platforms["windows-x86_64"].signature and .platforms["windows-x86_64"].url' "$DIR/latest.json" >/dev/null; then
             echo "latest.json is missing a signed windows-x86_64 entry" >&2
             cat "$DIR/latest.json" >&2
             exit 1
           fi
-          gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false
+          ASSETS=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')
+          for asset in skills-manager-cli-Windows-x64.exe skills-manager-cli-Linux-x64 skills-manager-cli-Linux-arm64; do
+            if ! grep -qx "$asset" <<<"$ASSETS"; then
+              echo "Missing CLI release asset: $asset" >&2
+              exit 1
+            fi
+          done
+          gh release edit "$TAG" --repo "$REPO" --draft=false
           echo "Published $TAG"
